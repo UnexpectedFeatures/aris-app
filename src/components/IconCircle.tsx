@@ -6,6 +6,7 @@ interface IconCircleProps {
   shadow?: boolean;
   border?: boolean;
   borderColor?: string;
+  borderSize?: string;
   backgroundColor?: string;
   shadowColor?: string;
   shadowOffsetX?: number;
@@ -20,6 +21,7 @@ const IconCircle: React.FC<IconCircleProps> = ({
   shadow = false,
   border = false,
   borderColor = "#D9D9D9",
+  borderSize = "1px",
   backgroundColor = "#F8F7F7",
   shadowColor = "#4FAE4A",
   shadowOffsetX = 0,

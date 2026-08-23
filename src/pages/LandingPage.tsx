@@ -1,6 +1,8 @@
 import React from "react";
+
 // Assets
-import UniversityLogo from "../assets/images/UCC-logo.png";
+import UniversityLogo from "../assets/images/UCC-Logo.png";
+
 import FingerPrintIcon from "../assets/images/finger.png";
 
 // Components
@@ -74,12 +76,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         style={{
           color: highlightedLetters.includes(char)
             ? accentColor
-            : secondaryAccentColor
+            : secondaryAccentColor,
         }}
       >
         {char}
       </span>
-    )
+    );
   });
 
   return (
@@ -94,10 +96,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       tabIndex={0}
       className={`relative flex h-screen w-full flex-col items-center justify-center ${className}`}
     >
-
       {/* Branding */}
       <section className="flex flex-col items-center justify-center text-center px-4">
-
         {/* University Logo */}
         <img
           src={UniversityLogo}
@@ -139,9 +139,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               ${fingerprintCircleBase}
               ${circle.size}
               ${circle.absolute ? "absolute" : ""}
-              ${circle.shadow
-                ? "shadow-[1px_1px_5px_2px_rgba(0,0,0,0.25)]"
-                : ""}
+              ${
+                circle.shadow ? "shadow-[1px_1px_5px_2px_rgba(0,0,0,0.25)]" : ""
+              }
             `}
             style={{
               borderColor: circle.borderColor,
@@ -162,17 +162,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
       <section className="flex flex-col justify-center items-center">
         <span className="text-[2.6042vh] font-medium leading-none uppercase">
-          <span style={{ color: secondaryAccentColor }}>
-            {promptTop}{" "}
-          </span>
+          <span style={{ color: secondaryAccentColor }}>{promptTop} </span>
 
-          <span style={{ color: accentColor }}>
-            {promptHighlight}{" "}
-          </span>
+          <span style={{ color: accentColor }}>{promptHighlight} </span>
 
-          <span style={{ color: secondaryAccentColor }}>
-            {promptBottom}
-          </span>
+          <span style={{ color: secondaryAccentColor }}>{promptBottom}</span>
         </span>
 
         <span
