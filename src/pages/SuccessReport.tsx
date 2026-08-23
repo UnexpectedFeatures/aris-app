@@ -1,19 +1,21 @@
 import React from "react";
 
 // Assets
-import DocumentIcon from "../assets/icons/docu.png";
-import ScannerImage from "../assets/images/scanner.png";
+import SuccessImage from "../assets/images/success.png";
+import CheckIcon from "../assets/icons/check.png";
 
 // Components
 import StepProgress from "../components/StepProgress";
 import IconCircle from "../components/IconCircle";
 import Spacer from "../components/Spacer";
 import Divider from "../components/Divider";
+import Button from "../components/Button";
 
 export interface SuccessReportProps {
   title?: string;
+  icon?: string;
   tagline?: string;
-  scannerImage?: string;
+  image?: string;
   accentColor?: string;
   secondaryColor?: string;
   onContinue?: () => void;
@@ -21,8 +23,9 @@ export interface SuccessReportProps {
 
 export const SuccessReport: React.FC<SuccessReportProps> = ({
   title = "SCAN ACCOMPLISHMENT REPORT",
+  icon = CheckIcon,
   tagline = "Success your accomplishment report on the scanner",
-  scannerImage = ScannerImage,
+  image = SuccessImage,
   accentColor = "#0E6528",
   secondaryColor = "#7A7F89",
   onContinue
@@ -49,15 +52,18 @@ export const SuccessReport: React.FC<SuccessReportProps> = ({
       <section className="flex flex-col justify-center items-center">
         <IconCircle
           size={"19.12vh"}
+          border
           shadow
+          borderColor="#4FAE4A"
+          borderSize="1.1719vh"
           shadowOffsetY={4}
-          shadowBlur={40}
-          shadowSpread={3}
+          shadowBlur={53}
+          shadowSpread={-8}
         >
           <img
-            src={DocumentIcon}
+            src={icon}
             alt="Document Icon"
-            className="w-[12vh] h-auto"
+            className="w-[10.2721vh] h-auto"
           />
         </IconCircle>
 
@@ -83,9 +89,20 @@ export const SuccessReport: React.FC<SuccessReportProps> = ({
 
         <Divider />
 
+        <Spacer size={6} />
+
         <img
-          src={scannerImage}
+          src={image}
           className="w-[46.61vh] h-auto"
+        />
+        
+        <Spacer size={15} />
+
+        <Button
+            onClick={onContinue}
+            width={"47.1354vh"}
+            height={"6.5833vh"}
+            fontSize={"2.6042vh"}
         />
 
       </section>

@@ -36,7 +36,7 @@ const IconCircle: React.FC<IconCircleProps> = ({
         width: size,
         height: size,
         backgroundColor,
-        border: border ? `0.2vh solid ${borderColor}` : "none",
+        border: border ? `${borderSize} solid ${borderColor}` : "none",
         boxShadow: shadow
           ? `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowSpread}px ${shadowColor}`
           : "none",
