@@ -1,10 +1,15 @@
 import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
 import { SignInData, SignUpData, UserSession } from "../data/auth.interface";
+import { DEMO_ACCOUNTS } from "../demoAuth";
 import { httpRequest, registerAccessTokenGetter } from "../utils/api";
 import {
   clearPersistedRefreshToken,
+  clearSessionCookie,
+  getPersistedRefreshToken,
+  getSessionCookie,
+  notifyAuthStateChange,
   persistRefreshToken,
+  setSessionCookie,
 } from "../utils/auth.helpers";
 import { useUIStore } from "./ui.store";
 
@@ -36,57 +41,127 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set({ loading: true });
 
     const lastUser = localStorage.getItem(LAST_USER_KEY);
-    if (!lastUser) {
+    const cachedSession = getSessionCookie();
+
+    if (!lastUser && !cachedSession) {
       set({ loading: false, initialized: true });
       return { down: false };
     }
 
     try {
-      const refreshToken = await invoke<string | null>("get_refresh_token", {
-        user: lastUser,
-      });
+      const refreshToken = lastUser ? getPersistedRefreshToken(lastUser) : null;
 
-      if (!refreshToken) {
+      if (!refreshToken && !cachedSession) {
         set({ loading: false, initialized: true });
         return { down: false };
       }
 
-      const response = await httpRequest("/auth/refresh", {
-        method: "POST",
-        data: { refreshToken },
-      });
+      if (lastUser && refreshToken) {
+        const response = await httpRequest("/auth/refresh", {
+          method: "POST",
+          data: { refreshToken },
+        });
 
-      if (response.serverDown) {
-        set({ loading: false, initialized: true, serverDown: true });
-        return { down: true };
+        if (response.serverDown) {
+          const cachedRole = cachedSession?.role ?? DEMO_ACCOUNTS.find((account) => account.email.toLowerCase() === lastUser.toLowerCase())?.role;
+          if (cachedRole) {
+            const fallbackUser = DEMO_ACCOUNTS.find((account) => account.email.toLowerCase() === lastUser.toLowerCase());
+            if (fallbackUser) {
+              set({
+                user: {
+                  id: fallbackUser.id,
+                  email: fallbackUser.email,
+                  role: fallbackUser.role,
+                  name: fallbackUser.name,
+                  fullName: fallbackUser.fullName,
+                  position: fallbackUser.position,
+                  department: fallbackUser.department,
+                  photoUrl: fallbackUser.photoUrl,
+                },
+                token: "demo-access-token",
+                loading: false,
+                initialized: true,
+                serverDown: true,
+              });
+              return { down: true };
+            }
+          }
+
+          set({ loading: false, initialized: true, serverDown: true });
+          return { down: true };
+        }
+
+        if (response.error) throw new Error(response.error);
+
+        const responseData = response.data as {
+          user: UserSession;
+          token: string;
+          refreshToken: string;
+        };
+
+        await persistRefreshToken(
+          LAST_USER_KEY,
+          lastUser,
+          responseData.refreshToken,
+        );
+
+        setSessionCookie({
+          email: responseData.user.email,
+          role: responseData.user.role,
+        });
+
+        set({
+          user: responseData.user,
+          token: responseData.token,
+          loading: false,
+          initialized: true,
+          serverDown: false,
+        });
+
+        return { down: false };
       }
 
-      if (response.error) throw new Error(response.error);
+      if (cachedSession) {
+        const matchedDemoAccount = DEMO_ACCOUNTS.find(
+          (account) => account.email.trim().toLowerCase() === cachedSession.email.trim().toLowerCase(),
+        );
 
-      const responseData = response.data as {
-        user: UserSession;
-        token: string;
-        refreshToken: string;
-      };
+        if (!matchedDemoAccount) {
+          clearSessionCookie();
+          set({ loading: false, initialized: true });
+          return { down: false };
+        }
 
-      await persistRefreshToken(
-        LAST_USER_KEY,
-        lastUser,
-        responseData.refreshToken,
-      );
+        const mappedUser: UserSession = {
+          id: matchedDemoAccount.id,
+          email: matchedDemoAccount.email,
+          role: matchedDemoAccount.role,
+          name: matchedDemoAccount.name,
+          fullName: matchedDemoAccount.fullName,
+          position: matchedDemoAccount.position,
+          department: matchedDemoAccount.department,
+          photoUrl: matchedDemoAccount.photoUrl,
+        };
 
-      set({
-        user: responseData.user,
-        token: responseData.token,
-        loading: false,
-        initialized: true,
-        serverDown: false,
-      });
+        set({
+          user: mappedUser,
+          token: "demo-access-token",
+          loading: false,
+          initialized: true,
+          serverDown: false,
+        });
 
+        return { down: false };
+      }
+
+      set({ loading: false, initialized: true });
       return { down: false };
     } catch (error) {
       console.error("Error initializing session:", error);
-      await clearPersistedRefreshToken(LAST_USER_KEY, lastUser);
+      if (lastUser) {
+        await clearPersistedRefreshToken(LAST_USER_KEY, lastUser);
+      }
+      clearSessionCookie();
       set({ loading: false, initialized: true });
       return { down: false };
     }
@@ -95,6 +170,59 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   signIn: async (data) => {
     set({ loading: true });
     try {
+      const normalizedEmail = data.email.trim().toLowerCase();
+      const demoMode = import.meta.env.VITE_DEMO_AUTH_ENABLED !== "false";
+      const matchedDemoAccount = DEMO_ACCOUNTS.find(
+        (account) => account.email.trim().toLowerCase() === normalizedEmail,
+      );
+
+      if (demoMode) {
+        if (matchedDemoAccount && matchedDemoAccount.password !== data.password) {
+          throw new Error(
+            `Incorrect password for ${matchedDemoAccount.email}. Use the demo password shown in the form.`,
+          );
+        }
+
+        if (!matchedDemoAccount) {
+          throw new Error(
+            "Demo account not found. Use one of the sample ARIS accounts shown on the login screen.",
+          );
+        }
+
+        await persistRefreshToken(LAST_USER_KEY, matchedDemoAccount.email, "demo-refresh-token");
+        setSessionCookie({ email: matchedDemoAccount.email, role: matchedDemoAccount.role });
+
+        const mappedUser: UserSession = {
+          id: matchedDemoAccount.id,
+          email: matchedDemoAccount.email,
+          role: matchedDemoAccount.role,
+          name: matchedDemoAccount.name,
+          fullName: matchedDemoAccount.fullName,
+          position: matchedDemoAccount.position,
+          department: matchedDemoAccount.department,
+          photoUrl: matchedDemoAccount.photoUrl,
+        };
+
+        set({
+          user: mappedUser,
+          token: "demo-access-token",
+          loading: false,
+          initialized: true,
+        });
+
+        notifyAuthStateChange('signed-in', {
+          email: matchedDemoAccount.email,
+          role: matchedDemoAccount.role,
+        });
+
+        useUIStore.getState().addToast({
+          type: "success",
+          message: "Demo sign in successful",
+          description: `Welcome back, ${matchedDemoAccount.fullName}.`,
+        });
+        return;
+      }
+
       const response = await httpRequest("/auth/signin", {
         method: "POST",
         data,
@@ -113,13 +241,18 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         responseData.user.email,
         responseData.refreshToken,
       );
+      setSessionCookie({ email: responseData.user.email, role: responseData.user.role });
 
       set({
         user: responseData.user,
         token: responseData.token,
         loading: false,
       });
-      useUIStore().addToast({
+      notifyAuthStateChange('signed-in', {
+        email: responseData.user.email,
+        role: responseData.user.role,
+      });
+      useUIStore.getState().addToast({
         type: "success",
         message: "Signed In Successfully",
         description: `Successfully Signed In as ${get().user?.email}`,
@@ -130,12 +263,15 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         error instanceof Error ? error.message : "Error signing in";
       console.error(message);
       set({ loading: false });
-      useUIStore().addToast({
-        type: "success",
-        message: "Signed In Successfully",
-        description: `Successfully Signed In as ${get().user?.email}`,
+      useUIStore.getState().addToast({
+        type: "error",
+        message: "Unable to sign in",
+        description: message,
       });
-      return;
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw error;
     }
   },
 
@@ -151,6 +287,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         LAST_USER_KEY,
         currentUser?.email ?? null,
       );
+      clearSessionCookie();
+      notifyAuthStateChange('signed-out', {
+        email: currentUser?.email ?? null,
+        role: currentUser?.role ?? null,
+      });
       set({ ...authStateInit, initialized: true });
     }
   },
@@ -173,7 +314,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       console.error(message);
       set({ loading: false });
 
-      useUIStore().addToast({
+      useUIStore.getState().addToast({
         type: "success",
         message: "Signed In Successfully",
         description: `Successfully Signed In as ${get().user?.email}`,
