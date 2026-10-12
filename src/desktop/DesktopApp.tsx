@@ -21,8 +21,8 @@ export default function DesktopApp() {
 
   const signIn = async (email: string, password: string) => {
     const session = await authenticate(email, password);
-    if (session.user.role === "administrator") {
-      throw new Error("Administrator accounts belong to the ARIS website.");
+    if (session.user.role !== "staff") {
+      throw new Error("Professor accounts must use organization Google sign-in.");
     }
     sessionStorage.setItem("aris-desktop-user", JSON.stringify(session.user));
     if (session.token) sessionStorage.setItem("aris-desktop-token", session.token);
