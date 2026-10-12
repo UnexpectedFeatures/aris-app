@@ -1,15 +1,17 @@
-# ARIS Website
+# ARIS Desktop App
 
-Frontend for the Accomplishment Report and Information System, built with React, TypeScript, and Vite.
+Professor and staff desktop app for the Accomplishment Report and Information System, built with Tauri, React, TypeScript, and Vite. The administrator website is maintained separately in `Aris-Web`.
 
 ## Development
 
 ```bash
 npm install
-npm run dev
+npm run desktop
 ```
 
-Copy `.env.example` to `.env` to configure the data source. The default `VITE_DATA_MODE=demo` uses the seeded records and persists demo changes in browser storage. Set `VITE_DATA_MODE=api` and `VITE_API_BASE_URL` to connect a backend.
+Copy `.env.example` to `.env` to configure the data source. The default `VITE_DATA_MODE=demo` uses the seeded records and persists demo changes in local storage. Set `VITE_DATA_MODE=api` and `VITE_API_BASE_URL` to connect a backend.
+
+Create a desktop installer with `npm run desktop:package`.
 
 ## Demo Accounts
 

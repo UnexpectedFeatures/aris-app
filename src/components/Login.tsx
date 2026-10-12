@@ -163,7 +163,7 @@ export default function Login({
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@aris.edu.ph"
+                placeholder="username@aris.edu.ph"
                 className="mt-1.5 w-full h-11 px-3.5 rounded-xl bg-white border text-[14px] outline-none transition-colors focus:border-[#3a7d4e]"
                 style={{ borderColor: "#e2e8e4", color: "#111c14" }}
               />
