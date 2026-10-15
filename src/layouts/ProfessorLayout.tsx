@@ -45,7 +45,7 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-[14px] leading-none tracking-tight" style={{ color: "#111c14" }}>ARIS</p>
-            <p className="text-[11px] mt-1" style={{ color: "#8fa394" }}>{isStaff ? "Staff" : "Professor"}</p>
+            <p className="text-[11px] mt-1" style={{ color: "#8fa394" }}>{isStaff ? user.staffStage ?? "Staff" : "Professor"}</p>
           </div>
         </div>
 
@@ -99,10 +99,6 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
                 <p className="text-[12.5px] mt-1" style={{ color: "#8fa394" }}>Welcome back to ARIS 👋</p>
               </div>
             </div>
-            <button onClick={() => navigate("/prof/submit")} className="flex items-center gap-2 h-9 px-4 rounded-xl text-[13px] font-semibold text-white" style={{ background: BRAND }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M12 5v14M5 12h14" /></svg>
-              New Submission
-            </button>
           </header>
         )}
 

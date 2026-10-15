@@ -5,6 +5,7 @@ import { AuthContext } from "@/app/authContext";
 import { desktopRouter } from "@/desktop/routes";
 import type { UserAccount } from "@/data/demoAccounts";
 import { signIn as authenticate } from "@/services/authService";
+import { isDemoMode } from "@/services/dataSource";
 
 function getStoredUser(): UserAccount | null {
   try {
@@ -21,12 +22,13 @@ export default function DesktopApp() {
 
   const signIn = async (email: string, password: string) => {
     const session = await authenticate(email, password);
-    if (session.user.role !== "staff") {
-      throw new Error("Professor accounts must use organization Google sign-in.");
+    const isDemoProfessor = isDemoMode && session.user.role === "professor";
+    if (session.user.role !== "staff" && !isDemoProfessor) {
+      throw new Error("Use the account sign-in method assigned to your role.");
     }
     sessionStorage.setItem("aris-desktop-user", JSON.stringify(session.user));
     if (session.token) sessionStorage.setItem("aris-desktop-token", session.token);
-    await desktopRouter.navigate(session.user.role === "staff" ? "/staff" : "/prof");
+    await desktopRouter.navigate(session.user.role === "professor" ? "/prof" : "/staff");
     setUser(session.user);
   };
 

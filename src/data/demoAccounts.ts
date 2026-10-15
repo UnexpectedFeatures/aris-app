@@ -1,10 +1,12 @@
 export type UserRole = "administrator" | "professor" | "staff";
+export type StaffStage = "Checker" | "Secretary" | "HR" | "Accounting";
 
 export interface UserAccount {
   id: string;
   email: string;
   name: string;
   role: UserRole;
+  staffStage?: StaffStage;
 }
 
 export interface DemoAccount extends UserAccount {
@@ -32,5 +34,6 @@ export const demoAccounts: DemoAccount[] = [
     password: "Staff12345",
     name: "Jordan Reyes",
     role: "staff",
+    staffStage: "Secretary",
   },
 ];

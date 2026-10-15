@@ -20,6 +20,7 @@ describe("demo authentication", () => {
     const session = authenticateDemo("staff@aris.edu.ph", "Staff12345");
 
     expect(session.user.role).toBe("staff");
+    expect(session.user.staffStage).toBe("Secretary");
   });
 
   it("rejects unknown accounts and incorrect passwords", () => {

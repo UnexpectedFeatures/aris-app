@@ -31,6 +31,7 @@ export function authenticateDemo(email: string, password: string): AuthSession {
 		email: account.email,
 		name: account.name,
 		role: account.role,
+		...(account.staffStage ? { staffStage: account.staffStage } : {}),
 	};
 	return { user, token: "demo-access-token" };
 }

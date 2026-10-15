@@ -170,7 +170,7 @@ export default function UserSettings() {
           </p>
           <div className="mt-2">
             <Badge tone="green" dot>
-              {user.role === "administrator" ? "Administrator" : user.role === "staff" ? "Staff" : "Professor"}
+              {user.role === "administrator" ? "Administrator" : user.role === "staff" ? user.staffStage ?? "Staff" : "Professor"}
             </Badge>
           </div>
           <div className="mt-4">

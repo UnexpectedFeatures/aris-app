@@ -2,9 +2,9 @@ import { useRef, useState } from "react"
 import { BarChart3, CheckCircle2, Leaf } from "lucide-react"
 import arisLogo from "@/assets/brand/image.png"
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui"
+import { isDemoMode } from "@/services/dataSource"
 
 const BRAND = "#3a7d4e"
-const BRAND_DARK = "#0d1a10"
 const SUPPORT_EMAIL = "admin@aris.edu.ph"
 
 const supportMailto = (subject: string, body: string) =>
@@ -12,11 +12,9 @@ const supportMailto = (subject: string, body: string) =>
 
 export default function Login({
   onSignIn,
-  onGoogleSignIn,
   audience = "administrator",
 }: {
   onSignIn: (email: string, password: string) => Promise<void>;
-  onGoogleSignIn?: () => Promise<void>;
   audience?: string;
 }) {
   const [role, setRole] = useState<"professor" | "staff">("professor")
@@ -43,18 +41,13 @@ export default function Login({
     setDialog(null)
   }
 
-  const startGoogleSignIn = async () => {
-    setError(null)
-    if (!onGoogleSignIn) {
-      setError("Organization Google sign-in is not configured yet. Contact IT administration.")
-      return
-    }
-
+  const signInWithCredentials = async (loginEmail: string, loginPassword: string) => {
     setSubmitting(true)
+    setError(null)
     try {
-      await onGoogleSignIn()
+      await onSignIn(loginEmail, loginPassword)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to sign in with Google.")
+      setError(reason instanceof Error ? reason.message : "Unable to sign in.")
     } finally {
       setSubmitting(false)
     }
@@ -62,15 +55,7 @@ export default function Login({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSubmitting(true)
-    setError(null)
-    try {
-      await onSignIn(email, password)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to sign in.")
-    } finally {
-      setSubmitting(false)
-    }
+    await signInWithCredentials(email, password)
   }
 
   return (
@@ -206,7 +191,7 @@ export default function Login({
                       color: selected ? "#fff" : "#718076",
                     }}
                   >
-                    {option === "professor" ? "Google Account" : "Email & Password"}
+                    {option === "professor" ? (isDemoMode ? "Demo Account" : "Unavailable") : "Email & Password"}
                   </span>
                 </button>
               )
@@ -218,7 +203,7 @@ export default function Login({
               <>
                 <p className="text-[12px] font-semibold" style={{ color: BRAND }}>For Professors</p>
                 <p className="text-[12px]" style={{ color: "#68798a" }}>
-                  Continue using your organization Google account.
+                  {isDemoMode ? "Use the temporary demo professor account." : "Professor sign-in is unavailable outside demo mode."}
                 </p>
               </>
             ) : (
@@ -357,15 +342,16 @@ export default function Login({
 
           {role === "professor" && (
             <div className="mt-2">
+              {/* Google sign-in is temporarily disabled while the demo account is in use. */}
               <button
                 type="button"
-                onClick={startGoogleSignIn}
-                disabled={submitting}
+                onClick={() => void signInWithCredentials("professor@aris.edu.ph", "Professor123")}
+                disabled={submitting || !isDemoMode}
                 className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border bg-white text-[13px] font-semibold transition-colors hover:bg-[#f7f9f8] disabled:opacity-60"
                 style={{ borderColor: "#dce3df", color: "#26352b" }}
               >
-                <span aria-hidden="true" className="text-[17px] font-bold" style={{ color: "#4285f4" }}>G</span>
-                {submitting ? "Connecting..." : "Continue with Google"}
+                <span aria-hidden="true" className="text-[17px] font-bold" style={{ color: BRAND }}>A</span>
+                {submitting ? "Signing in..." : isDemoMode ? "Continue as demo professor" : "Demo account unavailable"}
               </button>
               {error && <p role="alert" className="mt-3 text-center text-[12px] text-red-700">{error}</p>}
             </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/app/authContext";
 import { BRAND } from "@/config/navigation";
 import { useResource } from "@/hooks/useResource";
 import { saveResource } from "@/services/dataSource";
@@ -9,7 +10,6 @@ import {
   SearchInput,
   Badge,
   Avatar,
-  Tabs,
   Modal,
   Toggle,
   arTable,
@@ -265,8 +265,9 @@ const demoApprovalQueue: ApprovalItem[] = [
 /** How a submission reads from the acting role's point of view. */
 function stageStatus(
   it: ApprovalItem,
-  role: StageRole,
+  role: StageRole | null,
 ): { label: string; tone: "green" | "amber" | "red" | "gray"; note: string } {
+  if (!role) return { label: "View only", tone: "gray", note: "no review role assigned" };
   const mine = STAGES.indexOf(role);
   const at = STAGES.indexOf(it.stage);
   if (it.status === "Disapproved") {
@@ -379,7 +380,7 @@ function QueueCard({
   onOpen,
 }: {
   item: ApprovalItem;
-  role: StageRole;
+  role: StageRole | null;
   onOpen: () => void;
 }) {
   const st = stageStatus(item, role);
@@ -462,8 +463,11 @@ function QueueCard({
 }
 
 export default function Approvals() {
+  const { user } = useAuth();
   const { data: queue, setData: setQueue } = useResource("/approvals", demoApprovalQueue);
-  const [role, setRole] = useState<StageRole>("Secretary");
+  const role = user.role === "staff" && STAGES.includes(user.staffStage as StageRole)
+    ? user.staffStage as StageRole
+    : null;
   const [query, setQuery] = useState("");
   const [showDecided, setShowDecided] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -472,7 +476,7 @@ export default function Approvals() {
 
   const open = queue.find((it) => it.id === openId) ?? null;
   const openStatus = open ? stageStatus(open, role) : null;
-  const canAct = !!open && open.status === "Pending" && open.stage === role;
+  const canAct = !!open && !!role && open.status === "Pending" && open.stage === role;
   const next = open ? nextStageOf(open.stage) : undefined;
 
   const q = query.trim().toLowerCase();
@@ -487,13 +491,14 @@ export default function Approvals() {
   });
   const column = (s: StageRole) => visible.filter((it) => it.stage === s);
 
-  const awaiting = queue.filter(
-    (it) => it.status === "Pending" && it.stage === role,
-  ).length;
+  const awaiting = role
+    ? queue.filter((it) => it.status === "Pending" && it.stage === role).length
+    : 0;
   const inPipeline = queue.filter((it) => it.status === "Pending").length;
 
   const decide = async (item: ApprovalItem, action: "Approve" | "Disapprove") => {
-    const reviewer = `${STAGE_OWNER[role]} (${role})`;
+    if (!role || item.status !== "Pending" || item.stage !== role) return;
+    const reviewer = `${user.name} (${role})`;
     const target = nextStageOf(item.stage);
     setFlash(
       action === "Disapprove"
@@ -572,19 +577,19 @@ export default function Approvals() {
           <div className="flex items-center gap-3 min-w-0">
             <span
               className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
-              style={{ background: STAGE_COLOR[role] }}
+              style={{ background: role ? STAGE_COLOR[role] : "#8fa394" }}
             >
-              {role.slice(0, 3).toUpperCase()}
+              {role ? role.slice(0, 3).toUpperCase() : "VIEW"}
             </span>
             <div className="min-w-0">
               <p
                 className="text-[13px] font-semibold"
                 style={{ color: "#111c14" }}
               >
-                Acting as {role}
+                {role ? `Assigned role: ${role}` : "Read-only access"}
               </p>
               <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
-                {STAGE_OWNER[role]} · {awaiting} to review
+                {role ? `${user.name} · ${awaiting} to review` : "No review role assigned. Contact an administrator for access."}
               </p>
             </div>
           </div>
@@ -596,14 +601,7 @@ export default function Approvals() {
               <Toggle on={showDecided} onChange={setShowDecided} />
               Show decided
             </label>
-            <Tabs
-              tabs={[...STAGES]}
-              value={role}
-              onChange={(v) => {
-                setRole(v as StageRole);
-                setFlash(null);
-              }}
-            />
+            {!role && <Badge tone="gray">View only</Badge>}
           </div>
         </div>
       </Card>
@@ -825,7 +823,9 @@ export default function Approvals() {
                   )}
                 </svg>
                 <span>
-                  {open.status === "Approved"
+                  {!role
+                    ? "Your account has no assigned review stage. You can view submissions but cannot change them."
+                    : open.status === "Approved"
                     ? "Fully approved — no further action needed."
                     : open.status === "Disapproved"
                       ? `Disapproved at the ${open.stage} stage and returned to the faculty.`
