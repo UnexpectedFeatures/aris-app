@@ -17,8 +17,8 @@ Create a desktop installer with `npm run desktop:package`.
 
 | Role | Email | Password |
 | --- | --- | --- |
-| Administrator | `admin@aris.edu.ph` | `Admin12345` |
-| Professor | `professor@aris.edu.ph` | `Professor123` |
+| Administrator | `admin@ucc.edu.ph` | `Admin12345` |
+| Professor | `professor@ucc.edu.ph` | `Professor123` |
 
 ## Backend Contract
 

@@ -32,6 +32,9 @@ export const mainNav: NavItem[] = [
       </>,
     ),
   },
+]
+
+export const managementNav: NavItem[] = [
   {
     path: "/announcements",
     label: "Announcements",
@@ -133,7 +136,7 @@ export const settingsNav: NavItem[] = [
   },
 ]
 
-export const allNav = [...mainNav, ...settingsNav]
+export const allNav = [...mainNav, ...managementNav, ...settingsNav]
 
 // Professor-side variant (/prof)
 export const profMainNav: NavItem[] = [

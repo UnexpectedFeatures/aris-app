@@ -16,21 +16,21 @@ export interface DemoAccount extends UserAccount {
 export const demoAccounts: DemoAccount[] = [
   {
     id: "admin-demo-001",
-    email: "admin@aris.edu.ph",
+    email: "admin@ucc.edu.ph",
     password: "Admin12345",
     name: "ARIS Administrator",
     role: "administrator",
   },
   {
     id: "professor-demo-001",
-    email: "professor@aris.edu.ph",
+    email: "professor@ucc.edu.ph",
     password: "Professor123",
     name: "Amelia Torres",
     role: "professor",
   },
   {
     id: "staff-demo-001",
-    email: "staff@aris.edu.ph",
+    email: "staff@ucc.edu.ph",
     password: "Staff12345",
     name: "Jordan Reyes",
     role: "staff",

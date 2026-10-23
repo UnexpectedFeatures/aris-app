@@ -16,7 +16,9 @@
         "url": "desktop.html",
         "width": 800,
         "height": 600,
+        "maximized": true,
         "resizable": true,
+        "minimizable": false,
         "fullscreen": false
       }
     ],
