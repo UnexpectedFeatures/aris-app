@@ -7,7 +7,9 @@ import ProfSubmit from "@/pages/Professor/Submit";
 import ProfHistory from "@/pages/Professor/History";
 import ProfSummaries from "@/pages/Professor/Summaries";
 import ProfSupport from "@/pages/Professor/Support";
+import ProfChat from "@/pages/Professor/Chat";
 import UserSettings from "@/pages/Admin/UserSettings";
+import SystemSettings from "@/pages/Admin/SystemSettings";
 import StaffOverview from "@/pages/Staff/Overview";
 import StaffApprovals from "@/pages/Staff/Approvals";
 import StaffAnnouncements from "@/pages/Professor/Announcements";
@@ -37,7 +39,7 @@ export const desktopRouter = createHashRouter([
       { index: true, Component: StaffOverview },
       { path: "approvals", Component: StaffApprovals },
       { path: "announcements", Component: StaffAnnouncements },
-      { path: "settings", Component: UserSettings },
+      { path: "settings", Component: SystemSettings },
       { path: "*", Component: StaffOverview },
     ],
   },
@@ -51,7 +53,8 @@ export const desktopRouter = createHashRouter([
       { path: "history", Component: ProfHistory },
       { path: "summaries", Component: ProfSummaries },
       { path: "support", Component: ProfSupport },
-      { path: "settings/system", Component: UserSettings },
+      { path: "chat", Component: ProfChat },
+      { path: "settings/system", Component: SystemSettings },
       { path: "settings/user", Component: UserSettings },
       { path: "*", Component: ProfOverview },
     ],

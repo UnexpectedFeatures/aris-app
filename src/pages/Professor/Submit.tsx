@@ -22,6 +22,35 @@ type CourseBlock = {
   rows: RowData[]
 }
 
+type ClassRowDraft = {
+  code: string
+  section: string
+  campus: string
+  startTime: string
+  endTime: string
+  units: string
+  day: string
+}
+
+const emptyClassRow: ClassRowDraft = {
+  code: "",
+  section: "",
+  campus: "",
+  startTime: "",
+  endTime: "",
+  units: "3",
+  day: "",
+}
+
+function formatTime(time: string) {
+  const [hourText, minute] = time.split(":")
+  const hour = Number(hourText)
+  if (!Number.isInteger(hour) || !minute) return time
+  const period = hour >= 12 ? "PM" : "AM"
+  const displayHour = hour % 12 || 12
+  return `${displayHour}:${minute}${period}`
+}
+
 /* ─── Shared Label ─────────────────────────────────────── */
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -173,6 +202,8 @@ export default function ProfSubmit() {
   ])
 
   const [editingColId, setEditingColId] = useState<string | null>(null)
+  const [classModalCourseId, setClassModalCourseId] = useState<string | null>(null)
+  const [classRowDraft, setClassRowDraft] = useState<ClassRowDraft>(emptyClassRow)
   const [topics, setTopics] = useState(
     "a) Aggregate Functions\nb) Group By, Order By, Desc and Desc",
   )
@@ -232,18 +263,38 @@ export default function ProfSubmit() {
   }
 
   /* ── Row actions ── */
-  const handleAddRow = (courseId: string) => {
+  const handleAddRow = (courseId: string, details: ClassRowDraft) => {
     setCourses((prev) =>
       prev.map((c) => {
         if (c.id !== courseId) return c
         const newRowId = `r_${Date.now()}`
         const newRow: RowData = { id: newRowId }
         c.columns.forEach((col) => {
-          newRow[col.id] = col.id === "units" ? 3 : ""
+          newRow[col.id] =
+            col.id === "code" ? details.code.trim()
+              : col.id === "section" ? details.section.trim()
+                : col.id === "campus" ? details.campus.trim()
+                  : col.id === "days" ? details.day
+                    : col.id === "time" ? `${formatTime(details.startTime)}–${formatTime(details.endTime)}`
+                      : col.id === "units" ? Number(details.units)
+                        : ""
         })
         return { ...c, rows: [...c.rows, newRow] }
       }),
     )
+  }
+
+  const openClassRowModal = (courseId: string) => {
+    setClassRowDraft(emptyClassRow)
+    setClassModalCourseId(courseId)
+  }
+
+  const closeClassRowModal = () => setClassModalCourseId(null)
+
+  const saveClassRow = () => {
+    if (!classModalCourseId) return
+    handleAddRow(classModalCourseId, classRowDraft)
+    closeClassRowModal()
   }
 
   const handleUpdateCell = (
@@ -699,7 +750,7 @@ export default function ProfSubmit() {
               <div className="px-6 py-3 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => handleAddRow(course.id)}
+                  onClick={() => openClassRowModal(course.id)}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12px] font-semibold transition-all hover:bg-[#eaf4ee] active:scale-95"
                   style={{ color: "#009668" }}
                 >
@@ -937,6 +988,161 @@ export default function ProfSubmit() {
           </SectionCard>
         </div>
       </form>
+
+      {classModalCourseId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeClassRowModal()
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-class-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") closeClassRowModal()
+            }}
+            className="w-full max-w-[440px] rounded-[22px] bg-white px-7 py-5 shadow-2xl"
+          >
+            <header className="mb-5 flex items-center justify-between">
+              <h2 id="add-class-title" className="text-[14px] font-semibold" style={{ color: "#111c14" }}>
+                Add Class
+              </h2>
+              <button
+                type="button"
+                onClick={closeClassRowModal}
+                aria-label="Close add class dialog"
+                className="text-[18px] leading-none"
+                style={{ color: "#8fa394" }}
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-[0.8fr_1.6fr_1.1fr]">
+              <label className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: "#5a6b5e" }}>
+                Code
+                <input
+                  autoFocus
+                  required
+                  value={classRowDraft.code}
+                  onChange={(event) => setClassRowDraft({ ...classRowDraft, code: event.target.value })}
+                  placeholder="e.g. CC 105"
+                  className="mt-1 block h-9 w-full rounded-xl border px-2.5 text-[11px] font-medium normal-case tracking-normal outline-none focus:border-[#3a7d4e]"
+                  style={{ borderColor: "#e2e8e4", color: "#111c14" }}
+                />
+              </label>
+              <label className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: "#5a6b5e" }}>
+                Program, Year &amp; Section
+                <input
+                  required
+                  value={classRowDraft.section}
+                  onChange={(event) => setClassRowDraft({ ...classRowDraft, section: event.target.value })}
+                  placeholder="e.g. BSIT 2B"
+                  className="mt-1 block h-9 w-full rounded-xl border px-2.5 text-[11px] font-medium normal-case tracking-normal outline-none focus:border-[#3a7d4e]"
+                  style={{ borderColor: "#e2e8e4", color: "#111c14" }}
+                />
+              </label>
+              <label className="col-span-2 text-[9px] font-semibold uppercase tracking-wide sm:col-span-1" style={{ color: "#5a6b5e" }}>
+                Campus
+                <input
+                  required
+                  value={classRowDraft.campus}
+                  onChange={(event) => setClassRowDraft({ ...classRowDraft, campus: event.target.value })}
+                  placeholder="e.g. Congress"
+                  className="mt-1 block h-9 w-full rounded-xl border px-2.5 text-[11px] font-medium normal-case tracking-normal outline-none focus:border-[#3a7d4e]"
+                  style={{ borderColor: "#e2e8e4", color: "#111c14" }}
+                />
+              </label>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-3">
+              <label className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: "#5a6b5e" }}>
+                Time Start
+                <input
+                  required
+                  type="time"
+                  value={classRowDraft.startTime}
+                  onChange={(event) => setClassRowDraft({ ...classRowDraft, startTime: event.target.value })}
+                  className="mt-1 block h-9 w-full rounded-xl border px-2 text-[11px] font-medium outline-none focus:border-[#3a7d4e]"
+                  style={{ borderColor: "#e2e8e4", color: "#111c14" }}
+                />
+              </label>
+              <label className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: "#5a6b5e" }}>
+                Time End
+                <input
+                  required
+                  type="time"
+                  min={classRowDraft.startTime || undefined}
+                  value={classRowDraft.endTime}
+                  onChange={(event) => setClassRowDraft({ ...classRowDraft, endTime: event.target.value })}
+                  className="mt-1 block h-9 w-full rounded-xl border px-2 text-[11px] font-medium outline-none focus:border-[#3a7d4e]"
+                  style={{ borderColor: "#e2e8e4", color: "#111c14" }}
+                />
+              </label>
+              <label className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: "#5a6b5e" }}>
+                Units
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={classRowDraft.units}
+                  onChange={(event) => setClassRowDraft({ ...classRowDraft, units: event.target.value })}
+                  className="mt-1 block h-9 w-full rounded-xl border px-2.5 text-[11px] font-medium outline-none focus:border-[#3a7d4e]"
+                  style={{ borderColor: "#e2e8e4", color: "#111c14" }}
+                />
+              </label>
+            </div>
+
+            <fieldset className="mt-4">
+              <legend className="mb-2 text-[9px] font-semibold uppercase tracking-wide" style={{ color: "#5a6b5e" }}>
+                Day
+              </legend>
+              <div className="flex flex-wrap gap-x-3 gap-y-2">
+                {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => (
+                  <label key={day} className="flex cursor-pointer items-center gap-1 text-[10px]" style={{ color: "#111c14" }}>
+                    <input
+                      required
+                      type="radio"
+                      name="class-day"
+                      value={day}
+                      checked={classRowDraft.day === day}
+                      onChange={(event) => setClassRowDraft({ ...classRowDraft, day: event.target.value })}
+                      className="accent-[#3a7d4e]"
+                    />
+                    {day}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <footer className="mt-5 flex justify-end border-t pt-4" style={{ borderColor: "#f0f4f1" }}>
+              <button
+                type="button"
+                onClick={saveClassRow}
+                disabled={
+                  !classRowDraft.code.trim() ||
+                  !classRowDraft.section.trim() ||
+                  !classRowDraft.campus.trim() ||
+                  !classRowDraft.startTime ||
+                  !classRowDraft.endTime ||
+                  classRowDraft.endTime <= classRowDraft.startTime ||
+                  !classRowDraft.units ||
+                  !Number.isInteger(Number(classRowDraft.units)) ||
+                  Number(classRowDraft.units) < 1 ||
+                  !classRowDraft.day
+                }
+                className="rounded-xl px-4 py-2 text-[11px] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: "#3a7d4e" }}
+              >
+                Add Class
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {/* ── STICKY FOOTER ── */}
       <div

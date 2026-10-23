@@ -1,7 +1,7 @@
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { useState } from "react";
 import arisLogo from "@/assets/brand/image.png";
-import { BRAND, BRAND_DARK, profMainNav, profSettingsNav, staffMainNav, staffSettingsNav, type NavItem } from "@/config/navigation";
+import { BRAND, BRAND_DARK, profMainNav, profMeetNav, profHelpNav, profSettingsNav, staffMainNav, staffSettingsNav, type NavItem } from "@/config/navigation";
 import type { UserAccount } from "@/data/demoAccounts";
 import DataModeNotice from "@/components/DataModeNotice";
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui";
@@ -12,6 +12,8 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const isStaff = user.role === "staff";
   const mainNav = isStaff ? staffMainNav : profMainNav;
+  const meetNav = isStaff ? [] : profMeetNav;
+  const helpNav = isStaff ? [] : profHelpNav;
   const settingsNav = isStaff ? staffSettingsNav : profSettingsNav;
   const homePath = isStaff ? "/staff" : "/prof";
 
@@ -52,28 +54,62 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
         <nav className="flex-1 px-3 overflow-y-auto">
           <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-2 pb-1.5" style={{ color: "#b6c3ba" }}>Main</p>
           {mainNav.map((item) => <NavButton key={item.path} item={item} />)}
+          <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Meet</p>
+          {meetNav.map((item) => <NavButton key={item.path} item={item} />)}
+          <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Help</p>
+          {helpNav.map((item) => <NavButton key={item.path} item={item} />)}
           <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Settings</p>
           {settingsNav.map((item) => <NavButton key={item.path} item={item} />)}
         </nav>
 
         <div className="p-3">
-          <div className="flex items-center gap-3 p-2 rounded-2xl" style={{ background: "#f4f6f5" }}>
-            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0" style={{ background: BRAND }}>{user.name.slice(0, 2).toUpperCase()}</div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[12.5px] font-semibold truncate" style={{ color: "#111c14" }}>{user.name}</p>
-              <p className="text-[11px] truncate" style={{ color: "#8fa394" }}>{user.email}</p>
+          <div
+            className="flex items-center gap-3 cursor-pointer p-2 rounded-2xl"
+            style={{ background: "#f4f6f5" }}
+            onClick={() => navigate("/prof/settings/user")}
+          >
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
+              style={{ background: BRAND }}
+            >
+              {user.name.slice(0, 2).toUpperCase()}
             </div>
-            <button onClick={() => setShowSignOutConfirm(true)} aria-label="Sign out" className="transition-opacity hover:opacity-60" style={{ color: "#b6c3ba" }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-4 h-4"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>
-            </button>
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-[12.5px] font-semibold truncate"
+                style={{ color: "#111c14" }}
+              >
+                {user.name}
+              </p>
+              <p className="text-[11px] truncate" style={{ color: "#8fa394" }}>
+                {user.email}
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowSignOutConfirm(true)}
+            className="mt-1 flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] font-medium text-[#5a6b5e] transition-colors hover:bg-[#f4f6f5] hover:text-[#c0392b]"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+            </svg>
+            Logout
+          </button>
         </div>
       </aside>
 
       {/* Main */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         <nav aria-label="Mobile navigation" className="lg:hidden flex flex-shrink-0 gap-1 overflow-x-auto pb-2">
-          {[...mainNav, ...settingsNav].map((item) => (
+          {[...mainNav, ...meetNav, ...helpNav, ...settingsNav].map((item) => (
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
