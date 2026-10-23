@@ -58,7 +58,12 @@ function Row({
   );
 }
 
-const defaultPreferences = { desktop: true, weekly: true, mentions: false };
+const defaultPreferences = {
+  desktop: true,
+  weekly: true,
+  mentions: false,
+  theme: "light" as "light" | "dark" | "system",
+};
 
 export default function UserSettings() {
   const { user } = useAuth();
@@ -66,7 +71,7 @@ export default function UserSettings() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const set = (k: keyof typeof prefs) =>
+  const set = (k: "desktop" | "weekly" | "mentions") =>
     setPrefs((p) => ({ ...p, [k]: !p[k] }));
 
   const savePreferences = async () => {
@@ -83,8 +88,8 @@ export default function UserSettings() {
   return (
     <div className="pb-4">
       <PageTitle
-        title="User Settings"
-        subtitle="Manage your profile and preferences."
+        title={user.role === "professor" ? "Preferences" : user.role === "staff" ? "Preferences" : "User Settings"}
+        subtitle="Manage your account, appearance, and personal preferences."
         action={
           <PrimaryButton onClick={() => setShowConfirm(true)}>
             Save Changes
@@ -208,6 +213,33 @@ export default function UserSettings() {
 
         {/* Right column */}
         <div className="flex flex-col gap-4 min-h-0">
+          <Card>
+            <p className="mb-1 text-[15px] font-semibold" style={{ color: "#111c14" }}>
+              Appearance
+            </p>
+            <p className="mb-2 text-[12px]" style={{ color: "#8fa394" }}>
+              Choose how ARIS looks on this device.
+            </p>
+            <label className="block">
+              <span className="sr-only">Appearance preference</span>
+              <select
+                aria-label="Appearance preference"
+                value={prefs.theme}
+                onChange={(event) => {
+                  const theme = event.target.value;
+                  if (theme === "light" || theme === "dark" || theme === "system") {
+                    setPrefs((current) => ({ ...current, theme }));
+                  }
+                }}
+                className="h-10 w-full rounded-xl border bg-white px-3.5 text-[13px] outline-none focus:border-[#3a7d4e]"
+                style={{ borderColor: "#e2e8e4", color: "#111c14" }}
+              >
+                <option value="light">Light mode</option>
+                <option value="dark">Dark mode</option>
+                <option value="system">Use system preference</option>
+              </select>
+            </label>
+          </Card>
           <Card>
             <p
               className="text-[15px] font-semibold mb-4"

@@ -1,7 +1,7 @@
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { useState } from "react";
 import arisLogo from "@/assets/brand/image.png";
-import { BRAND, BRAND_DARK, profMainNav, profMeetNav, profHelpNav, profSettingsNav, staffMainNav, staffSettingsNav, type NavItem } from "@/config/navigation";
+import { BRAND, BRAND_DARK, profMainNav, profMeetNav, profHelpNav, profSettingsNav, settingsNav as adminSettingsNav, staffMainNav, staffSettingsNav, type NavItem } from "@/config/navigation";
 import type { UserAccount } from "@/data/demoAccounts";
 import DataModeNotice from "@/components/DataModeNotice";
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui";
@@ -11,11 +11,12 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
   const navigate = useNavigate();
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const isStaff = user.role === "staff";
-  const mainNav = isStaff ? staffMainNav : profMainNav;
-  const meetNav = isStaff ? [] : profMeetNav;
-  const helpNav = isStaff ? [] : profHelpNav;
-  const settingsNav = isStaff ? staffSettingsNav : profSettingsNav;
-  const homePath = isStaff ? "/staff" : "/prof";
+  const isAdmin = user.role === "administrator";
+  const mainNav = isAdmin ? [] : isStaff ? staffMainNav : profMainNav;
+  const meetNav = isStaff || isAdmin ? [] : profMeetNav;
+  const helpNav = isStaff || isAdmin ? [] : profHelpNav;
+  const settingsNav = isAdmin ? adminSettingsNav : isStaff ? staffSettingsNav : profSettingsNav;
+  const homePath = isAdmin ? "/admin" : isStaff ? "/staff" : "/prof";
 
   const confirmSignOut = () => {
     setShowSignOutConfirm(false);
@@ -47,17 +48,23 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-[14px] leading-none tracking-tight" style={{ color: "#111c14" }}>ARIS</p>
-            <p className="text-[11px] mt-1" style={{ color: "#8fa394" }}>{isStaff ? user.staffStage ?? "Staff" : "Professor"}</p>
+            <p className="text-[11px] mt-1" style={{ color: "#8fa394" }}>{isAdmin ? "Administrator" : isStaff ? user.staffStage ?? "Staff" : "Professor"}</p>
           </div>
         </div>
 
         <nav className="flex-1 px-3 overflow-y-auto">
-          <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-2 pb-1.5" style={{ color: "#b6c3ba" }}>Main</p>
-          {mainNav.map((item) => <NavButton key={item.path} item={item} />)}
-          <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Meet</p>
-          {meetNav.map((item) => <NavButton key={item.path} item={item} />)}
-          <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Help</p>
-          {helpNav.map((item) => <NavButton key={item.path} item={item} />)}
+          {mainNav.length > 0 && <>
+            <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-2 pb-1.5" style={{ color: "#b6c3ba" }}>Main</p>
+            {mainNav.map((item) => <NavButton key={item.path} item={item} />)}
+          </>}
+          {meetNav.length > 0 && <>
+            <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Meet</p>
+            {meetNav.map((item) => <NavButton key={item.path} item={item} />)}
+          </>}
+          {helpNav.length > 0 && <>
+            <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Help</p>
+            {helpNav.map((item) => <NavButton key={item.path} item={item} />)}
+          </>}
           <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Settings</p>
           {settingsNav.map((item) => <NavButton key={item.path} item={item} />)}
         </nav>
@@ -66,7 +73,7 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
           <div
             className="flex items-center gap-3 cursor-pointer p-2 rounded-2xl"
             style={{ background: "#f4f6f5" }}
-            onClick={() => navigate("/prof/settings/user")}
+            onClick={() => navigate(isAdmin ? "/admin/settings/user" : isStaff ? "/staff/settings" : "/prof/settings/preferences")}
           >
             <div
               className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0"
@@ -126,7 +133,7 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
           <span className="min-w-0 flex-1 truncate text-[12px] font-medium" style={{ color: "#3d4a41" }}>{user.name}</span>
           <button onClick={() => setShowSignOutConfirm(true)} className="flex-shrink-0 px-2 py-1 text-[12px] font-semibold" style={{ color: BRAND }}>Sign out</button>
         </div>
-        {location.pathname === homePath && !isStaff && (
+        {location.pathname === homePath && !isStaff && !isAdmin && (
           <header className="flex flex-col gap-2 flex-shrink-0 pb-2 pl-1 pr-1 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-[13px] font-semibold" style={{ background: BRAND_DARK }}>{user.name.slice(0, 2).toUpperCase()}</div>

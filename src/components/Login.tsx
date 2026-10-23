@@ -13,10 +13,10 @@ export default function Login({
   onSignIn,
   audience = "administrator",
 }: {
-  onSignIn: (email: string, password: string) => Promise<void>;
+  onSignIn: (email: string, password: string, role: "administrator" | "professor" | "staff") => Promise<void>;
   audience?: string;
 }) {
-  const [role, setRole] = useState<"professor" | "staff">("professor")
+  const [role, setRole] = useState<"administrator" | "professor" | "staff">("professor")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [show, setShow] = useState(false)
@@ -44,7 +44,7 @@ export default function Login({
     setSubmitting(true)
     setError(null)
     try {
-      await onSignIn(loginEmail, loginPassword)
+      await onSignIn(loginEmail, loginPassword, role)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to sign in.")
     } finally {
@@ -152,8 +152,8 @@ export default function Login({
               Sign in to access your account.
             </p>
 
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              {(["professor", "staff"] as const).map((option) => {
+            <div className="mt-5 grid grid-cols-3 gap-2">
+              {(["administrator", "professor", "staff"] as const).map((option) => {
                 const selected = role === option
                 return (
                   <button
@@ -164,15 +164,15 @@ export default function Login({
                       setError(null)
                     }}
                     aria-pressed={selected}
-                    className="min-h-[54px] rounded-lg border px-2.5 py-2 text-left transition-colors"
+                    className="min-h-[54px] rounded-lg border px-2 py-2 text-left transition-colors"
                     style={{
                       borderColor: selected ? BRAND : "#e2e8e4",
                       background: selected ? "#fbfefc" : "#fff",
                       color: "#26352b",
                     }}
                   >
-                    <span className="flex items-center justify-between gap-2 text-[12.5px] font-semibold capitalize">
-                      <span className="flex items-center gap-2">
+                    <span className="flex items-center justify-between gap-1 text-[11px] font-semibold capitalize">
+                      <span className="flex items-center gap-1">
                         <svg viewBox="0 0 24 24" fill="none" stroke={selected ? BRAND : "#8fa394"} strokeWidth="1.6" className="h-4 w-4">
                           <path d="m2 9 10-5 10 5-10 5L2 9Z" />
                           <path d="M6 11v5c3 2 9 2 12 0v-5M22 9v6" />
@@ -205,12 +205,12 @@ export default function Login({
                 </>
               ) : (
                 <p className="leading-none text-[12px]" style={{ color: "#68798a" }}>
-                  Use your registered email and password.
+                  {role === "administrator" ? "Administrator sign-in." : "Use your registered email and password."}
                 </p>
               )}
             </div>
 
-            {role === "staff" && <form onSubmit={submit} className="space-y-3">
+            {role !== "professor" && <form onSubmit={submit} className="space-y-3">
               <label className="block">
                 <div
                   className="group flex items-center gap-1 w-full px-3.5 rounded-xl bg-white border text-[14px] transition-[border-color,box-shadow] focus-within:border-[#3a7d4e] focus-within:ring-2 focus-within:ring-[#3a7d4e]/15"

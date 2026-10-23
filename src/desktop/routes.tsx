@@ -16,22 +16,45 @@ import StaffAnnouncements from "@/pages/Professor/Announcements";
 
 function StaffRootWithAuth() {
   const { signOut, user } = useAuth();
-  if (user.role !== "staff") return <Navigate to="/staff" replace />;
+  if (user.role !== "staff") {
+    const redirect = user.role === "administrator" ? "/admin" : "/prof";
+    return <Navigate to={redirect} replace />;
+  }
+  return <ProfRoot onSignOut={signOut} user={user} />;
+}
+
+function AdministratorRootWithAuth() {
+  const { signOut, user } = useAuth();
+  if (user.role !== "administrator") return <Navigate to="/" replace />;
   return <ProfRoot onSignOut={signOut} user={user} />;
 }
 
 function DesktopHome() {
   const { user } = useAuth();
-  return <Navigate to={user.role === "staff" ? "/staff" : "/prof"} replace />;
+  const home = user.role === "administrator" ? "/admin" : user.role === "staff" ? "/staff" : "/prof";
+  return <Navigate to={home} replace />;
 }
 
 function ProfessorRootWithAuth() {
   const { signOut, user } = useAuth();
-  if (user.role !== "professor") return <Navigate to="/prof" replace />;
+  if (user.role !== "professor") {
+    const redirect = user.role === "administrator" ? "/admin" : "/staff";
+    return <Navigate to={redirect} replace />;
+  }
   return <ProfRoot onSignOut={signOut} user={user} />;
 }
 
 export const desktopRouter = createHashRouter([
+  {
+    path: "/admin",
+    Component: AdministratorRootWithAuth,
+    children: [
+      { index: true, element: <Navigate to="/admin/settings/system" replace /> },
+      { path: "settings/system", Component: SystemSettings },
+      { path: "settings/user", Component: UserSettings },
+      { path: "*", element: <Navigate to="/admin/settings/system" replace /> },
+    ],
+  },
   {
     path: "/staff",
     Component: StaffRootWithAuth,
@@ -39,7 +62,7 @@ export const desktopRouter = createHashRouter([
       { index: true, Component: StaffOverview },
       { path: "approvals", Component: StaffApprovals },
       { path: "announcements", Component: StaffAnnouncements },
-      { path: "settings", Component: SystemSettings },
+      { path: "settings", Component: UserSettings },
       { path: "*", Component: StaffOverview },
     ],
   },
@@ -54,8 +77,9 @@ export const desktopRouter = createHashRouter([
       { path: "summaries", Component: ProfSummaries },
       { path: "support", Component: ProfSupport },
       { path: "chat", Component: ProfChat },
-      { path: "settings/system", Component: SystemSettings },
-      { path: "settings/user", Component: UserSettings },
+      { path: "settings/system", element: <Navigate to="/prof/settings/preferences" replace /> },
+      { path: "settings/preferences", Component: UserSettings },
+      { path: "settings/user", element: <Navigate to="/prof/settings/preferences" replace /> },
       { path: "*", Component: ProfOverview },
     ],
   },

@@ -21,7 +21,7 @@ export type NavItem = { path: string; label: string; icon: JSX.Element }
 
 export const settingsNav: NavItem[] = [
   {
-    path: "/settings/system",
+    path: "/admin/settings/system",
     label: "System Settings",
     icon: icon(
       <>
@@ -31,7 +31,7 @@ export const settingsNav: NavItem[] = [
     ),
   },
   {
-    path: "/settings/user",
+    path: "/admin/settings/user",
     label: "User Settings",
     icon: icon(
       <>
@@ -91,8 +91,8 @@ export const profMeetNav: NavItem[] = [
     label: "Google Meet",
     icon: icon(
       <>
-        <path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" />
-        <path d="M19 11a7 7 0 01-14 0M4 20h16" />
+        <rect x="3" y="6" width="12" height="12" rx="2" />
+        <path d="m15 10 6-3v10l-6-3" />
       </>,
     ),
   },
@@ -113,8 +113,7 @@ export const profHelpNav: NavItem[] = [
     label: "Chat",
     icon: icon(
       <>
-        <circle cx="12" cy="12" r="10" />
-        <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" />
+        <path d="M4 5h16v12H8l-4 3V5z" />
       </>,
     ),
   },
@@ -131,8 +130,8 @@ export const profHelpNav: NavItem[] = [
 ]
 export const profSettingsNav: NavItem[] = [
   {
-    path: "/prof/settings/system",
-    label: "System Settings",
+    path: "/prof/settings/preferences",
+    label: "Preferences",
     icon: icon(
       <>
         <circle cx="12" cy="12" r="3" />
@@ -175,7 +174,7 @@ export const staffMainNav: NavItem[] = [
 export const staffSettingsNav: NavItem[] = [
   {
     path: "/staff/settings",
-    label: "Settings",
+    label: "Preferences",
     icon: icon(
       <>
         <circle cx="12" cy="12" r="3" />
