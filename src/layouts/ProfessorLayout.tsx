@@ -3,7 +3,6 @@ import { useState } from "react";
 import arisLogo from "@/assets/brand/image.png";
 import { BRAND, BRAND_DARK, profMainNav, profMeetNav, profHelpNav, profSettingsNav, settingsNav as adminSettingsNav, staffMainNav, staffSettingsNav, type NavItem } from "@/config/navigation";
 import type { UserAccount } from "@/data/demoAccounts";
-import DataModeNotice from "@/components/DataModeNotice";
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui";
 
 export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; user: UserAccount }) {
@@ -146,7 +145,6 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
         )}
 
         <main className="flex-1 overflow-y-auto min-h-0 pr-1">
-          <DataModeNotice />
           <Outlet />
         </main>
       </div>
