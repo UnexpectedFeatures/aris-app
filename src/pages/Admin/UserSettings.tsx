@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { BRAND } from "@/config/navigation";
 import { useAuth } from "@/app/authContext";
 import { useResource } from "@/hooks/useResource";
@@ -13,7 +13,7 @@ import {
   Modal,
 } from "@/components/ui";
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
   return (
     <div>
       <p
@@ -23,8 +23,10 @@ function Field({ label, value }: { label: string; value: string }) {
         {label}
       </p>
       <input
-        defaultValue={value}
-        className="w-full h-10 px-3.5 rounded-xl bg-white border text-[13.5px] outline-none focus:border-[#3a7d4e]"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full h-10 px-3.5 rounded-lg bg-white border text-[13.5px] outline-none focus:border-[#3a7d4e] disabled:bg-[#f7f9f8] disabled:text-[#738176]"
         style={{ borderColor: "#e2e8e4", color: "#111c14" }}
       />
     </div>
@@ -58,21 +60,74 @@ function Row({
   );
 }
 
-const defaultPreferences = {
-  desktop: true,
-  weekly: true,
-  mentions: false,
-  theme: "light" as "light" | "dark" | "system",
-};
+const defaultPreferences = { desktop: true, weekly: true, mentions: false };
 
 export default function UserSettings() {
   const { user } = useAuth();
+  const defaultProfile = { firstName: user.name.split(" ")[0] ?? "", lastName: user.name.split(" ").slice(1).join(" "), email: user.email, phone: "", avatar_url: "" };
+  const { data: storedProfile, setData: setProfile } = useResource("/users/me/profile", defaultProfile);
+  const apiProfile = storedProfile as typeof defaultProfile & { firstname?: string; lastname?: string };
+  const profile = {
+    ...defaultProfile,
+    ...(Array.isArray(apiProfile) ? {} : apiProfile),
+    firstName: Array.isArray(apiProfile) ? defaultProfile.firstName : apiProfile.firstName ?? apiProfile.firstname ?? defaultProfile.firstName,
+    lastName: Array.isArray(apiProfile) ? defaultProfile.lastName : apiProfile.lastName ?? apiProfile.lastname ?? defaultProfile.lastName,
+  };
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
   const { data: prefs, setData: setPrefs } = useResource("/users/me/preferences", defaultPreferences);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const set = (k: "desktop" | "weekly" | "mentions") =>
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const set = (k: keyof typeof prefs) =>
     setPrefs((p) => ({ ...p, [k]: !p[k] }));
+
+  const updateProfile = (key: keyof typeof profile, value: string) => {
+    setProfile((current) => ({ ...current, [key]: value }));
+    setProfileMessage(null);
+  };
+
+  const saveProfile = async () => {
+    setProfileSaving(true);
+    setProfileMessage(null);
+    try {
+      await saveResource("/users/me/profile", profile, "PATCH");
+      setEditingProfile(false);
+      setProfileMessage("Information saved.");
+    } catch (reason) {
+      setProfileMessage(reason instanceof Error ? reason.message : "Unable to save profile information.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const savePassword = async () => {
+    setPasswordMessage(null);
+    try {
+      await saveResource("/users/me/password", { password: newPassword, confirmPassword }, "POST");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordMessage("Password updated.");
+    } catch (reason) {
+      setPasswordMessage(reason instanceof Error ? reason.message : "Unable to update password.");
+    }
+  };
+
+  const uploadPhoto = async (file: File) => {
+    const form = new FormData();
+    form.append("photo", file);
+    try {
+      const response = await saveResource<{ avatar_url: string }>("/users/me/photo", form, "POST");
+      setProfile((current) => ({ ...current, avatar_url: response.avatar_url }));
+    } catch (reason) {
+      setProfileMessage(reason instanceof Error ? reason.message : "Unable to update photo.");
+    }
+  };
 
   const savePreferences = async () => {
     try {
@@ -88,8 +143,8 @@ export default function UserSettings() {
   return (
     <div className="pb-4">
       <PageTitle
-        title={user.role === "professor" ? "Preferences" : user.role === "staff" ? "Preferences" : "User Settings"}
-        subtitle="Manage your account, appearance, and personal preferences."
+        title="User Settings"
+        subtitle="Manage your profile and preferences."
         action={
           <PrimaryButton onClick={() => setShowConfirm(true)}>
             Save Changes
@@ -158,20 +213,22 @@ export default function UserSettings() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
         {/* Profile summary */}
         <Card className="flex flex-col items-center text-center overflow-hidden">
-          <div
+          {profile.avatar_url ? (
+            <img src={`${import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000"}${profile.avatar_url}`} alt="Profile" className="w-20 h-20 rounded-full object-cover" />
+          ) : <div
             className="w-20 h-20 rounded-full flex items-center justify-center text-white text-[26px] font-semibold"
             style={{ background: BRAND }}
           >
-            {user.name.slice(0, 2).toUpperCase()}
-          </div>
+            {`${profile.firstName} ${profile.lastName}`.trim().slice(0, 2).toUpperCase()}
+          </div>}
           <p
             className="text-[16px] font-semibold mt-3"
             style={{ color: "#111c14" }}
           >
-            {user.name}
+            {`${profile.firstName} ${profile.lastName}`.trim()}
           </p>
           <p className="text-[13px]" style={{ color: "#8fa394" }}>
-            {user.email}
+            {profile.email}
           </p>
           <div className="mt-2">
             <Badge tone="green" dot>
@@ -179,7 +236,7 @@ export default function UserSettings() {
             </Badge>
           </div>
           <div className="mt-4">
-            <GhostButton>
+            <GhostButton onClick={() => photoInput.current?.click()}>
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -191,6 +248,11 @@ export default function UserSettings() {
               </svg>
               Change photo
             </GhostButton>
+            <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void uploadPhoto(file);
+              event.target.value = "";
+            }} />
           </div>
           <div
             className="w-full mt-auto pt-5 border-t space-y-2.5 text-left"
@@ -214,45 +276,21 @@ export default function UserSettings() {
         {/* Right column */}
         <div className="flex flex-col gap-4 min-h-0">
           <Card>
-            <p className="mb-1 text-[15px] font-semibold" style={{ color: "#111c14" }}>
-              Appearance
-            </p>
-            <p className="mb-2 text-[12px]" style={{ color: "#8fa394" }}>
-              Choose how ARIS looks on this device.
-            </p>
-            <label className="block">
-              <span className="sr-only">Appearance preference</span>
-              <select
-                aria-label="Appearance preference"
-                value={prefs.theme}
-                onChange={(event) => {
-                  const theme = event.target.value;
-                  if (theme === "light" || theme === "dark" || theme === "system") {
-                    setPrefs((current) => ({ ...current, theme }));
-                  }
-                }}
-                className="h-10 w-full rounded-xl border bg-white px-3.5 text-[13px] outline-none focus:border-[#3a7d4e]"
-                style={{ borderColor: "#e2e8e4", color: "#111c14" }}
-              >
-                <option value="light">Light mode</option>
-                <option value="dark">Dark mode</option>
-                <option value="system">Use system preference</option>
-              </select>
-            </label>
-          </Card>
-          <Card>
-            <p
-              className="text-[15px] font-semibold mb-4"
-              style={{ color: "#111c14" }}
-            >
-              Profile
-            </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="First name" value={user.name.split(" ")[0] ?? ""} />
-              <Field label="Last name" value={user.name.split(" ").slice(1).join(" ")} />
-              <Field label="Email" value={user.email} />
-              <Field label="Phone" value="+63 917 555 0142" />
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-[15px] font-semibold" style={{ color: "#111c14" }}>Profile</p>
+              <PrimaryButton onClick={() => editingProfile ? void saveProfile() : setEditingProfile(true)}>
+                {profileSaving ? "Saving..." : editingProfile ? "Save information" : "Edit information"}
+              </PrimaryButton>
             </div>
+            {profileMessage && <p role="status" className="mb-3 text-[12px]" style={{ color: profileMessage === "Information saved." ? "#2f7043" : "#c0392b" }}>{profileMessage}</p>}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="First name" value={profile.firstName} disabled={!editingProfile} onChange={(value) => updateProfile("firstName", value)} />
+              <Field label="Last name" value={profile.lastName} disabled={!editingProfile} onChange={(value) => updateProfile("lastName", value)} />
+              <Field label="Email" value={profile.email} disabled={!editingProfile} onChange={(value) => updateProfile("email", value)} />
+              <Field label="Phone" value={profile.phone} disabled={!editingProfile} onChange={(value) => updateProfile("phone", value)} />
+            </div>
+            {passwordMessage && <p role="status" className="mt-3 text-[12px]" style={{ color: passwordMessage === "Password updated." ? "#2f7043" : "#c0392b" }}>{passwordMessage}</p>}
+            <div className="mt-3 flex justify-end"><PrimaryButton onClick={() => void savePassword()}>Update password</PrimaryButton></div>
           </Card>
 
           <Card>
@@ -272,6 +310,8 @@ export default function UserSettings() {
                 </p>
                 <input
                   type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
                   placeholder="••••••••"
                   className="w-full h-10 px-3.5 rounded-xl bg-white border text-[13.5px] outline-none focus:border-[#3a7d4e]"
                   style={{ borderColor: "#e2e8e4" }}
@@ -286,6 +326,8 @@ export default function UserSettings() {
                 </p>
                 <input
                   type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
                   placeholder="••••••••"
                   className="w-full h-10 px-3.5 rounded-xl bg-white border text-[13.5px] outline-none focus:border-[#3a7d4e]"
                   style={{ borderColor: "#e2e8e4" }}

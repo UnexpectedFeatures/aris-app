@@ -131,7 +131,7 @@ export const profHelpNav: NavItem[] = [
 export const profSettingsNav: NavItem[] = [
   {
     path: "/prof/settings/preferences",
-    label: "Preferences",
+    label: "User Settings",
     icon: icon(
       <>
         <circle cx="12" cy="12" r="3" />
@@ -174,7 +174,7 @@ export const staffMainNav: NavItem[] = [
 export const staffSettingsNav: NavItem[] = [
   {
     path: "/staff/settings",
-    label: "Preferences",
+    label: "User Settings",
     icon: icon(
       <>
         <circle cx="12" cy="12" r="3" />
