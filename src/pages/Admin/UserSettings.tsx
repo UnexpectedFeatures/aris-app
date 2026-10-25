@@ -76,7 +76,7 @@ export default function UserSettings() {
 
   const savePreferences = async () => {
     try {
-      await saveResource("/users/me/preferences", prefs, "PUT");
+      await saveResource("/users/me/preferences", prefs, "PATCH");
       setShowConfirm(false);
       setShowSaved(true);
       setSaveError(null);

@@ -11,9 +11,24 @@ const demoPosts = [
   { title: "DTR name must match the official roster", body: "Please ensure the name on your DTR matches your roster entry exactly — mismatches are flagged and delay verification.", tag: "AR / DTR", tone: "green" as const, initials: "DT", date: "4 days ago", pinned: false },
 ];
 
+type Announcement = (typeof demoPosts)[number] & {
+  id?: string;
+  publishedAt?: string;
+  date?: string;
+};
+
+type UserNotification = {
+  id: string;
+  title: string;
+  body?: string;
+  is_read: boolean;
+  created_at: string;
+};
+
 export default function ProfAnnouncements() {
   const [tab, setTab] = useState("All");
-  const { data: posts } = useResource("/announcements", demoPosts);
+  const { data: posts, loading, error } = useResource<Announcement[]>("/announcements", demoPosts);
+  const { data: notifications } = useResource<UserNotification[]>("/notifications", []);
   const tabs = ["All", "AR / DTR", "System", "AI / ML"];
   const visible = posts.filter((p) => tab === "All" || p.tag === tab);
 
@@ -24,9 +39,11 @@ export default function ProfAnnouncements() {
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div>
           <div className="mb-4"><Tabs tabs={tabs} value={tab} onChange={setTab} /></div>
+          {error && <p className="mb-3 text-[12px] text-red-600">{error}</p>}
+          {loading && <p className="mb-3 text-[12px]" style={{ color: "#8fa394" }}>Loading announcements...</p>}
           <div className="space-y-3">
             {visible.map((p) => (
-              <Card key={p.title} className="flex gap-4">
+              <Card key={p.id ?? p.title} className="flex gap-4">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-[12px] font-semibold flex-shrink-0" style={{ background: initialsColor(p.title.length) }}>{p.initials}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -36,7 +53,9 @@ export default function ProfAnnouncements() {
                   <p className="text-[13px] leading-relaxed" style={{ color: "#5a6b5e" }}>{p.body}</p>
                   <div className="flex items-center gap-3 mt-3">
                     <Badge tone={p.tone}>{p.tag}</Badge>
-                    <span className="text-[12px]" style={{ color: "#8fa394" }}>{p.date}</span>
+                    <span className="text-[12px]" style={{ color: "#8fa394" }}>
+                      {p.date}
+                    </span>
                   </div>
                 </div>
               </Card>
@@ -48,12 +67,29 @@ export default function ProfAnnouncements() {
           <p className="text-[13px] font-semibold mb-3" style={{ color: "#111c14" }}>Pinned</p>
           <div className="space-y-3">
             {posts.filter((p) => p.pinned).map((p) => (
-              <div key={p.title} className="flex items-start gap-2">
+              <div key={p.id ?? p.title} className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: BRAND }} />
                 <p className="text-[12.5px] leading-snug" style={{ color: "#3d4a41" }}>{p.title}</p>
               </div>
             ))}
           </div>
+          {notifications.length > 0 && (
+            <>
+              <p className="mt-5 border-t pt-4 text-[13px] font-semibold" style={{ color: "#111c14", borderColor: "#f0f4f1" }}>
+                Notifications
+              </p>
+              <div className="mt-3 space-y-3">
+                {notifications.slice(0, 5).map((notification) => (
+                  <div key={notification.id}>
+                    <p className="text-[12.5px] font-medium" style={{ color: notification.is_read ? "#5a6b5e" : "#111c14" }}>
+                      {notification.title}
+                    </p>
+                    {notification.body && <p className="mt-0.5 text-[11.5px] leading-snug" style={{ color: "#8fa394" }}>{notification.body}</p>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </Card>
       </div>
     </div>

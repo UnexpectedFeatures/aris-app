@@ -9,7 +9,7 @@ npm install
 npm run desktop
 ```
 
-Copy `.env.example` to `.env` to configure the data source. The default `VITE_DATA_MODE=demo` uses the seeded records and persists demo changes in local storage. Set `VITE_DATA_MODE=api` and `VITE_API_BASE_URL` to connect a backend.
+Copy `.env.example` to `.env` to configure the data source. The default `VITE_DATA_MODE=api` connects to the ARIS server at `http://localhost:3000`. Set `VITE_DATA_MODE=demo` to use the seeded records and persist demo changes in local storage.
 
 Create a desktop installer with `npm run desktop:package`.
 
@@ -22,7 +22,7 @@ Create a desktop installer with `npm run desktop:package`.
 
 ## Backend Contract
 
-Sign-in sends `POST /auth/signin` with `{ "email": "...", "password": "..." }`. The server should return `{ "user": { "id": "...", "email": "...", "name": "...", "role": "administrator" | "professor" }, "token": "..." }`; `{ "ok": true, "data": ... }` envelopes are also accepted. The bearer token is attached to later requests.
+Sign-in sends `POST /auth/signin` with `{ "email": "...", "password": "..." }`. The server returns `{ "user": { "id": "...", "email": "...", "name": "...", "role": "admin" | "professor" | "staff" }, "token": "..." }`; `{ "ok": true, "data": ... }` envelopes are also accepted. The desktop maps the server's `admin` role to `administrator`. The bearer token and server cookie are attached to later requests.
 
 Page resources are isolated in `src/services/dataSource.ts` and use these routes relative to `VITE_API_BASE_URL`:
 

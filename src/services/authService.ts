@@ -7,8 +7,14 @@ export interface AuthSession {
 	token?: string;
 }
 
+type ServerUserRole = UserRole | "admin";
+
+interface ServerUser extends Omit<UserAccount, "role"> {
+	role: ServerUserRole;
+}
+
 interface SignInPayload {
-	user: UserAccount;
+	user: ServerUser;
 	token?: string;
 }
 
@@ -52,9 +58,15 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
 	if (!payload?.user?.id || !payload.user.email || !isUserRole(payload.user.role)) {
 		throw new Error("The server returned an invalid user session.");
 	}
-	return payload;
+	return {
+		...payload,
+		user: {
+			...payload.user,
+			role: payload.user.role === "admin" ? "administrator" : payload.user.role,
+		},
+	};
 }
 
-function isUserRole(value: unknown): value is UserRole {
-	return value === "administrator" || value === "professor" || value === "staff";
+function isUserRole(value: unknown): value is ServerUserRole {
+	return value === "administrator" || value === "admin" || value === "professor" || value === "staff";
 }

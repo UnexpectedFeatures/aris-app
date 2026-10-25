@@ -127,7 +127,7 @@ function StatusBadge({ children, tone = "green" }: { children: React.ReactNode; 
 }
 
 export default function SystemSettings() {
-  const { data: settings, setData: setSettings, loading, error } = useResource("/settings/system", defaultSettings)
+  const { data: settings, setData: setSettings, loading, error } = useResource("/system/settings", defaultSettings)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
