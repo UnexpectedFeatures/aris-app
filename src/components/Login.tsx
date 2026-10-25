@@ -2,6 +2,7 @@ import { useRef, useState } from "react"
 import { BarChart3, CheckCircle2, Leaf, Lock, Mail } from "lucide-react"
 import { cancel, onUrl, start } from "@fabianlars/tauri-plugin-oauth"
 import { openUrl } from "@tauri-apps/plugin-opener"
+import { invoke } from "@tauri-apps/api/core"
 import arisLogo from "@/assets/brand/image.png"
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui"
 import { isDemoMode } from "@/services/dataSource"
@@ -111,6 +112,11 @@ export default function Login({
             resolve()
             return
           }
+          const accessToken = params.get("access_token")
+          if (accessToken) {
+            sessionStorage.setItem("aris-google-access-token", accessToken)
+            localStorage.setItem("aris-google-access-token", accessToken)
+          }
           void onGoogleSignIn(idToken)
             .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to sign in with Google."))
             .finally(resolve)
@@ -123,12 +129,17 @@ export default function Login({
       authUrl.search = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
-        response_type: "id_token",
-        scope: "openid email profile",
+        response_type: "token id_token",
+        scope: "openid email profile https://www.googleapis.com/auth/meetings.space.created",
         nonce: crypto.randomUUID(),
         state,
+        include_granted_scopes: "true",
       }).toString()
-      await openUrl(authUrl.toString())
+      try {
+        await invoke("open_oauth_window", { url: authUrl.toString() });
+      } catch {
+        await openUrl(authUrl.toString());
+      }
       await callback
     } catch (reason) {
       setError(reason instanceof Error ? `Unable to start Google sign-in: ${reason.message}` : `Unable to start Google sign-in: ${String(reason)}`)
@@ -136,6 +147,11 @@ export default function Login({
     } finally {
       if (unlisten) unlisten()
       if (port) await cancel(port).catch(() => undefined)
+      try {
+        await invoke("close_oauth_window");
+      } catch {
+        // ignore
+      }
     }
   }
 

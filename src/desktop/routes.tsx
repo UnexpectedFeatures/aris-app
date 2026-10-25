@@ -5,6 +5,7 @@ import ProfOverview from "@/pages/Professor/Overview";
 import ProfAnnouncements from "@/pages/Professor/Announcements";
 import ProfSubmit from "@/pages/Professor/Submit";
 import ProfHistory from "@/pages/Professor/History";
+import ProfMeet from "@/pages/Professor/Meet";
 import ProfSummaries from "@/pages/Professor/Summaries";
 import ProfSupport from "@/pages/Professor/Support";
 import ProfChat from "@/pages/Professor/Chat";
@@ -74,6 +75,7 @@ export const desktopRouter = createHashRouter([
       { path: "announcements", Component: ProfAnnouncements },
       { path: "submit", Component: ProfSubmit },
       { path: "history", Component: ProfHistory },
+      { path: "meet", Component: ProfMeet },
       { path: "summaries", Component: ProfSummaries },
       { path: "support", Component: ProfSupport },
       { path: "chat", Component: ProfChat },

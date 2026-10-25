@@ -23,6 +23,9 @@ export default function DesktopApp() {
     const session = await signInWithGoogle(idToken);
     sessionStorage.setItem("aris-desktop-user", JSON.stringify(session.user));
     if (session.token) sessionStorage.setItem("aris-desktop-token", session.token);
+    sessionStorage.setItem("aris-google-id-token", idToken);
+    sessionStorage.setItem("aris-google-email", session.user.email);
+    localStorage.setItem("aris-last-oauth-email", session.user.email);
     await desktopRouter.navigate("/prof");
     setUser(session.user);
   };
@@ -30,6 +33,10 @@ export default function DesktopApp() {
   const signOut = () => {
     sessionStorage.removeItem("aris-desktop-user");
     sessionStorage.removeItem("aris-desktop-token");
+    sessionStorage.removeItem("aris-google-id-token");
+    sessionStorage.removeItem("aris-google-email");
+    sessionStorage.removeItem("aris-google-access-token");
+    localStorage.removeItem("aris-google-access-token");
     setUser(null);
   };
 
