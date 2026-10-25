@@ -1,5 +1,7 @@
 import { useRef, useState } from "react"
 import { BarChart3, CheckCircle2, Leaf, Lock, Mail } from "lucide-react"
+import { cancel, onUrl, start } from "@fabianlars/tauri-plugin-oauth"
+import { openUrl } from "@tauri-apps/plugin-opener"
 import arisLogo from "@/assets/brand/image.png"
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui"
 import { isDemoMode } from "@/services/dataSource"
@@ -10,10 +12,10 @@ const supportMailto = (subject: string, body: string) =>
   `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 
 export default function Login({
-  onSignIn,
+  onGoogleSignIn,
   audience = "administrator",
 }: {
-  onSignIn: (email: string, password: string, role: "administrator" | "professor" | "staff") => Promise<void>;
+  onGoogleSignIn: (idToken: string) => Promise<void>;
   audience?: string;
 }) {
   const [role, setRole] = useState<"administrator" | "professor" | "staff">("professor")
@@ -40,21 +42,64 @@ export default function Login({
     setDialog(null)
   }
 
-  const signInWithCredentials = async (loginEmail: string, loginPassword: string) => {
-    setSubmitting(true)
-    setError(null)
-    try {
-      await onSignIn(loginEmail, loginPassword, role)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to sign in.")
-    } finally {
-      setSubmitting(false)
-    }
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
   }
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    await signInWithCredentials(email, password)
+  const signInWithGoogle = async () => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+    if (!clientId) {
+      setError("Google sign-in is not configured.")
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    const state = crypto.randomUUID()
+    let port: number | undefined
+    let unlisten: (() => void) | undefined
+    try {
+      port = await start({ ports: [8765, 8766, 8767] })
+      const callback = new Promise<void>((resolve) => {
+        void onUrl((redirectUrl) => {
+          const callbackUrl = new URL(redirectUrl)
+          const params = new URLSearchParams(callbackUrl.hash.slice(1) || callbackUrl.search.slice(1))
+          if (params.get("state") !== state) {
+            setError("Google sign-in returned an invalid state.")
+            resolve()
+            return
+          }
+          const idToken = params.get("id_token")
+          if (!idToken) {
+            setError("Google sign-in did not return an identity token.")
+            resolve()
+            return
+          }
+          void onGoogleSignIn(idToken)
+            .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to sign in with Google."))
+            .finally(resolve)
+        }).then((removeListener) => {
+          unlisten = removeListener
+        })
+      })
+      const redirectUri = `http://127.0.0.1:${port}`
+      const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth")
+      authUrl.search = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "id_token",
+        scope: "openid email profile",
+        nonce: crypto.randomUUID(),
+        state,
+      }).toString()
+      await openUrl(authUrl.toString())
+      await callback
+    } catch (reason) {
+      setError(reason instanceof Error ? `Unable to start Google sign-in: ${reason.message}` : `Unable to start Google sign-in: ${String(reason)}`)
+      setSubmitting(false)
+    } finally {
+      if (unlisten) unlisten()
+      if (port) await cancel(port).catch(() => undefined)
+    }
   }
 
   return (
@@ -152,7 +197,7 @@ export default function Login({
               Sign in to access your account.
             </p>
 
-            <div className="mt-5 grid grid-cols-3 gap-2">
+            {audience !== "desktop" && <div className="mt-5 grid grid-cols-3 gap-2">
               {(["administrator", "professor", "staff"] as const).map((option) => {
                 const selected = role === option
                 return (
@@ -193,14 +238,14 @@ export default function Login({
                   </button>
                 )
               })}
-            </div>
+            </div>}
 
             <div className="min-h-10 flex items-center justify-center text-center">
               {role === "professor" ? (
                 <>
                   <p className="text-[12px] font-semibold" style={{ color: BRAND }}>For Professors</p>
                   <p className="text-[12px]" style={{ color: "#68798a" }}>
-                    {isDemoMode ? "Use the temporary demo professor account." : "Professor sign-in is unavailable outside demo mode."}
+                    Use your registered Google account to continue.
                   </p>
                 </>
               ) : (
@@ -343,17 +388,11 @@ export default function Login({
 
             {role === "professor" && (
               <div className="mt-2">
-                {/* Google sign-in is temporarily disabled while the demo account is in use. */}
-                <button
-                  type="button"
-                  onClick={() => void signInWithCredentials("professor@ucc.edu.ph", "Professor123")}
-                  disabled={submitting || !isDemoMode}
-                  className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border bg-white text-[13px] font-semibold transition-colors hover:bg-[#f7f9f8] disabled:opacity-60"
-                  style={{ borderColor: "#dce3df", color: "#26352b" }}
-                >
-                  <span aria-hidden="true" className="text-[17px] font-bold" style={{ color: BRAND }}>A</span>
-                  {submitting ? "Signing in..." : isDemoMode ? "Continue with Google" : "Demo account unavailable"}
+                <button type="button" onClick={() => void signInWithGoogle()} disabled={submitting} className="flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border bg-white text-[13px] font-semibold transition-colors hover:bg-[#f7f9f8] disabled:opacity-60" style={{ borderColor: "#dce3df", color: "#26352b" }}>
+                  <span aria-hidden="true" className="text-[17px] font-bold" style={{ color: BRAND }}>G</span>
+                  {submitting ? "Signing in..." : "Continue with Google"}
                 </button>
+                {submitting && <p className="mt-2 text-center text-[12px]" style={{ color: "#68798a" }}>Signing in...</p>}
                 {error && <p role="alert" className="mt-3 text-center text-[12px] text-red-700">{error}</p>}
               </div>
             )}

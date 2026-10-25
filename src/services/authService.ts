@@ -9,7 +9,10 @@ export interface AuthSession {
 
 type ServerUserRole = UserRole | "admin";
 
-interface ServerUser extends Omit<UserAccount, "role"> {
+interface ServerUser extends Omit<UserAccount, "name" | "role"> {
+	name?: string;
+	firstname?: string;
+	lastname?: string;
 	role: ServerUserRole;
 }
 
@@ -23,6 +26,34 @@ interface SignInEnvelope {
 	data?: SignInPayload;
 	message?: string;
 	error?: string;
+}
+
+export async function signInWithGoogle(idToken: string): Promise<AuthSession> {
+	const response = await apiClient.post<SignInPayload | SignInEnvelope>("/auth/google/mobile/signin", {
+		id_token: idToken,
+		platform: "desktop",
+	});
+	if ("ok" in response.data && response.data.ok === false) {
+		throw new Error(response.data.message ?? response.data.error ?? "Google sign-in failed.");
+	}
+	const payload = "data" in response.data
+		? (response.data as SignInEnvelope).data
+		: response.data as SignInPayload;
+	if (!payload?.user?.id || !payload.user.email || payload.user.role !== "professor") {
+		throw new Error("Only registered professors can sign in to the desktop app.");
+	}
+	const name = payload.user.name?.trim()
+		|| [payload.user.firstname, payload.user.lastname].filter(Boolean).join(" ").trim()
+		|| payload.user.email;
+	return {
+		...payload,
+		user: {
+			id: payload.user.id,
+			email: payload.user.email,
+			name,
+			role: "professor",
+		},
+	};
 }
 
 export function authenticateDemo(email: string, password: string): AuthSession {
@@ -61,7 +92,11 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
 	return {
 		...payload,
 		user: {
-			...payload.user,
+			id: payload.user.id,
+			email: payload.user.email,
+			name: payload.user.name?.trim()
+				|| [payload.user.firstname, payload.user.lastname].filter(Boolean).join(" ").trim()
+				|| payload.user.email,
 			role: payload.user.role === "admin" ? "administrator" : payload.user.role,
 		},
 	};

@@ -11,6 +11,8 @@ npm run desktop
 
 Copy `.env.example` to `.env` to configure the data source. The default `VITE_DATA_MODE=api` connects to the ARIS server at `http://localhost:3000`. Set `VITE_DATA_MODE=demo` to use the seeded records and persist demo changes in local storage.
 
+Desktop professor sign-in opens Google in the system browser. Add `http://127.0.0.1:8765` as an authorized redirect URI for the Google OAuth client, then set the same client ID in `VITE_GOOGLE_CLIENT_ID` here and `WEB_GOOGLE_CLIENT_ID` in the ARIS server.
+
 Create a desktop installer with `npm run desktop:package`.
 
 ## Demo Accounts
