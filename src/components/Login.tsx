@@ -11,6 +11,40 @@ const SUPPORT_EMAIL = "admin@ucc.edu.ph"
 const supportMailto = (subject: string, body: string) =>
   `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 
+const oauthCallbackPage = `
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARIS sign-in complete</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, Segoe UI, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f0f4f8; color: #111c14; }
+      main { width: min( calc(100% - 40px), 420px ); box-sizing: border-box; padding: 36px 32px; text-align: center; background: white; border-radius: 20px; box-shadow: 0 16px 40px rgba(16, 32, 20, .12); }
+      .mark { width: 56px; height: 56px; margin: 0 auto 20px; display: grid; place-items: center; border-radius: 16px; background: #eaf4ee; color: #3a7d4e; font-size: 28px; font-weight: 800; }
+      h1 { margin: 0; color: #064b3b; font-size: 22px; }
+      p { margin: 10px 0 0; color: #68798a; font-size: 14px; line-height: 1.5; }
+      .hint { margin-top: 22px; color: #8fa394; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">&#10003;</div>
+      <h1>Sign-in complete</h1>
+      <p>You are signed in to ARIS. You can return to the desktop app now.</p>
+      <p class="hint">This tab will close automatically.</p>
+    </main>
+    <script>
+      window.setTimeout(function () {
+        window.close();
+        document.querySelector(".hint").textContent = "You can close this tab and return to ARIS.";
+      }, 900);
+    </script>
+  </body>
+</html>
+`
+
 export default function Login({
   onGoogleSignIn,
   audience = "administrator",
@@ -58,7 +92,10 @@ export default function Login({
     let port: number | undefined
     let unlisten: (() => void) | undefined
     try {
-      port = await start({ ports: [8765, 8766, 8767] })
+      port = await start({
+        ports: [8765, 8766, 8767],
+        response: oauthCallbackPage,
+      })
       const callback = new Promise<void>((resolve) => {
         void onUrl((redirectUrl) => {
           const callbackUrl = new URL(redirectUrl)
