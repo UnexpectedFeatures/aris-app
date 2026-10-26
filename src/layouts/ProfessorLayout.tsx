@@ -1,7 +1,7 @@
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { useState } from "react";
 import arisLogo from "@/assets/brand/image.png";
-import { BRAND, BRAND_DARK, profMainNav, profMeetNav, profHelpNav, profSettingsNav, settingsNav as adminSettingsNav, staffMainNav, staffSettingsNav, type NavItem } from "@/config/navigation";
+import { BRAND, BRAND_DARK, profMainNav, profMeetNav, profHelpNav, profSettingsNav, settingsNav as adminSettingsNav, staffMainNav, staffHelpNav, staffSettingsNav, type NavItem } from "@/config/navigation";
 import type { UserAccount } from "@/data/demoAccounts";
 import DataModeNotice from "@/components/DataModeNotice";
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui";
@@ -14,7 +14,7 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
   const isAdmin = user.role === "administrator";
   const mainNav = isAdmin ? [] : isStaff ? staffMainNav : profMainNav;
   const meetNav = isStaff || isAdmin ? [] : profMeetNav;
-  const helpNav = isStaff || isAdmin ? [] : profHelpNav;
+  const helpNav = isAdmin ? [] : isStaff ? staffHelpNav : profHelpNav;
   const settingsNav = isAdmin ? adminSettingsNav : isStaff ? staffSettingsNav : profSettingsNav;
   const homePath = isAdmin ? "/admin" : isStaff ? "/staff" : "/prof";
 
@@ -133,7 +133,7 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
           <span className="min-w-0 flex-1 truncate text-[12px] font-medium" style={{ color: "#3d4a41" }}>{user.name}</span>
           <button onClick={() => setShowSignOutConfirm(true)} className="flex-shrink-0 px-2 py-1 text-[12px] font-semibold" style={{ color: BRAND }}>Sign out</button>
         </div>
-        {location.pathname === homePath && !isStaff && !isAdmin && (
+        {location.pathname === homePath && !isAdmin && (
           <header className="flex flex-col gap-2 flex-shrink-0 pb-2 pl-1 pr-1 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-[13px] font-semibold" style={{ background: BRAND_DARK }}>{user.name.slice(0, 2).toUpperCase()}</div>

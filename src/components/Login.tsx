@@ -11,12 +11,12 @@ const supportMailto = (subject: string, body: string) =>
 
 export default function Login({
   onSignIn,
-  audience = "administrator",
+  audience = "desktop",
 }: {
-  onSignIn: (email: string, password: string, role: "administrator" | "professor" | "staff") => Promise<void>;
+  onSignIn: (email: string, password: string, role: "professor" | "staff") => Promise<void>;
   audience?: string;
 }) {
-  const [role, setRole] = useState<"administrator" | "professor" | "staff">("professor")
+  const [role, setRole] = useState<"professor" | "staff">("professor")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [show, setShow] = useState(false)
@@ -152,8 +152,8 @@ export default function Login({
               Sign in to access your account.
             </p>
 
-            <div className="mt-5 grid grid-cols-3 gap-2">
-              {(["administrator", "professor", "staff"] as const).map((option) => {
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              {(["professor", "staff"] as const).map((option) => {
                 const selected = role === option
                 return (
                   <button
@@ -205,7 +205,7 @@ export default function Login({
                 </>
               ) : (
                 <p className="leading-none text-[12px]" style={{ color: "#68798a" }}>
-                  {role === "administrator" ? "Administrator sign-in." : "Use your registered email and password."}
+                  Use your registered email and password.
                 </p>
               )}
             </div>
