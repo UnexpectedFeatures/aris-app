@@ -1,16 +1,10 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Filter, MessageSquare, Search, Send, UserRound } from "lucide-react"
+import { useSearchParams } from "react-router"
+import { getSupportTickets, type SupportTicket } from "@/services/supportTickets"
 
 type TicketStatus = "Open" | "Closed"
-type Ticket = {
-  id: string
-  title: string
-  header: string
-  customer: string
-  priority: "Low" | "Medium" | "High"
-  status: TicketStatus
-  date: string
-}
+type Ticket = SupportTicket
 type ChatMessage = {
   id: string
   text: string
@@ -18,24 +12,8 @@ type ChatMessage = {
   fromMe: boolean
 }
 
-const initialTickets: Ticket[] = [
-  {
-    id: "ticket-1",
-    title: "Ticket name",
-    header: "Ticket Header",
-    customer: "TicketUser",
-    priority: "Low",
-    status: "Open",
-    date: "Today",
-  },
-]
-
-const initialMessages: ChatMessage[] = [
-  { id: "message-1", text: "Sample Text", time: "12:00 PM", fromMe: true },
-  { id: "message-2", text: "Sample Text", time: "12:00 PM", fromMe: false },
-  { id: "message-3", text: "Sample Text", time: "12:00 PM", fromMe: false },
-  { id: "message-4", text: "Sample Text", time: "12:00 PM", fromMe: true },
-]
+const initialTickets: Ticket[] = []
+const initialMessages: ChatMessage[] = []
 
 type TicketFilter = "All" | TicketStatus
 
@@ -66,8 +44,12 @@ function Avatar() {
 }
 
 export default function ProfChat() {
-  const [tickets, setTickets] = useState(initialTickets)
-  const [selectedTicketId, setSelectedTicketId] = useState(initialTickets[0].id)
+  const [searchParams] = useSearchParams()
+  const ticketFromUrl = searchParams.get("ticket")
+  const [tickets, setTickets] = useState(() => getSupportTickets(initialTickets))
+  const [selectedTicketId, setSelectedTicketId] = useState(() =>
+    tickets.find((ticket) => ticket.id === ticketFromUrl)?.id ?? tickets[0]?.id ?? "",
+  )
   const [messages, setMessages] = useState(initialMessages)
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<TicketFilter>("All")
@@ -75,6 +57,17 @@ export default function ProfChat() {
   const [response, setResponse] = useState("")
 
   const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId)
+  useEffect(() => {
+    const ticket = tickets.find((item) => item.id === selectedTicketId)
+    setMessages(ticket?.description
+      ? [{
+          id: `${ticket.id}-description`,
+          text: ticket.description,
+          time: ticket.date,
+          fromMe: true,
+        }]
+      : initialMessages)
+  }, [selectedTicketId, tickets])
   const visibleTickets = useMemo(() => tickets.filter((ticket) => {
     const matchesQuery = `${ticket.title} ${ticket.customer}`.toLowerCase().includes(query.toLowerCase())
     return matchesQuery && (filter === "All" || ticket.status === filter)
@@ -108,9 +101,9 @@ export default function ProfChat() {
     <section className="flex min-h-[560px] flex-col text-[#111c14] lg:h-full">
       <div className="grid flex-shrink-0 grid-cols-1 gap-4 pb-3 md:grid-cols-[minmax(220px,1fr)_minmax(0,2.4fr)]">
         <header>
-          <h1 className="text-[22px] font-bold tracking-tight">Support</h1>
+          <h1 className="text-[22px] font-bold tracking-tight">Chat</h1>
           <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>
-            Manage your profile and preferences.
+            Manage your ticket.
           </p>
         </header>
 

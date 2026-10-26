@@ -1,6 +1,10 @@
+import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router";
 import { BRAND } from "@/config/navigation";
-import { Card, PageTitle, PrimaryButton, GhostButton } from "@/components/ui";
+import { useAuth } from "@/app/authContext";
+import { Card, PageTitle, PrimaryButton, GhostButton, Modal } from "@/components/ui";
 import { useResource } from "@/hooks/useResource";
+import { createSupportTicket } from "@/services/supportTickets";
 
 const demoFaqs = [
   { q: "When are AR / DTR submissions due?", a: "Each cycle closes Friday at 5:00 PM. Late entries roll to the next cycle and may affect your on-time rate." },
@@ -15,7 +19,34 @@ const channels = [
 ];
 
 export default function ProfSupport() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: faqs } = useResource("/support/faqs", demoFaqs);
+  const [showTicketForm, setShowTicketForm] = useState(false);
+  const [ticketTitle, setTicketTitle] = useState("");
+  const [ticketDetails, setTicketDetails] = useState("");
+  const [ticketPriority, setTicketPriority] = useState<"Low" | "Medium" | "High">("Medium");
+  const basePath = user.role === "staff" ? "/staff" : "/prof";
+
+  const submitTicket = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = ticketTitle.trim();
+    const details = ticketDetails.trim();
+    if (!title || !details) return;
+
+    const ticket = createSupportTicket({
+      title,
+      header: title,
+      customer: user.name,
+      description: details,
+      priority: ticketPriority,
+    });
+    setShowTicketForm(false);
+    setTicketTitle("");
+    setTicketDetails("");
+    navigate(`${basePath}/chat?ticket=${encodeURIComponent(ticket.id)}`);
+  };
+
   return (
     <div className="pb-2">
       <PageTitle title="Support" subtitle="Answers to common AR / DTR questions and how to reach a person." />
@@ -58,14 +89,73 @@ export default function ProfSupport() {
           </Card>
           <Card style={{ background: "linear-gradient(180deg,#f4faf6,#ffffff)", border: "1px solid #dcebe1" }}>
             <p className="text-[13.5px] font-semibold" style={{ color: "#111c14" }}>Still stuck?</p>
-            <p className="text-[12.5px] mt-1 mb-3 leading-relaxed" style={{ color: "#5a6b5e" }}>Open a ticket and the help desk will follow up by email.</p>
+            <p className="text-[12.5px] mt-1 mb-3 leading-relaxed" style={{ color: "#5a6b5e" }}>Create a ticket to keep your support request and replies together.</p>
             <div className="flex gap-2">
-              <PrimaryButton>New Ticket</PrimaryButton>
-              <GhostButton>Live Chat</GhostButton>
+              <PrimaryButton onClick={() => setShowTicketForm(true)}>New Ticket</PrimaryButton>
+              <GhostButton onClick={() => navigate(`${basePath}/live-chat`)}>Live Chat</GhostButton>
             </div>
           </Card>
         </div>
       </div>
+      <Modal
+        isOpen={showTicketForm}
+        onClose={() => setShowTicketForm(false)}
+        title="Create a support ticket"
+        actions={
+          <>
+            <GhostButton onClick={() => setShowTicketForm(false)}>Cancel</GhostButton>
+            <PrimaryButton onClick={() => document.getElementById("support-ticket-form")?.requestSubmit()}>
+              Create Ticket
+            </PrimaryButton>
+          </>
+        }
+      >
+        <form id="support-ticket-form" onSubmit={submitTicket} className="space-y-3">
+          <label className="block text-[12.5px] font-medium text-[#3d4a41]">
+            Subject
+            <input
+              autoFocus
+              required
+              maxLength={80}
+              value={ticketTitle}
+              onChange={(event) => setTicketTitle(event.target.value)}
+              placeholder="What do you need help with?"
+              className="mt-1.5 h-10 w-full rounded-xl border bg-white px-3 text-[13px] outline-none focus:border-[#3a7d4e]"
+              style={{ borderColor: "#e2e8e4" }}
+            />
+          </label>
+          <label className="block text-[12.5px] font-medium text-[#3d4a41]">
+            Details
+            <textarea
+              required
+              maxLength={1000}
+              rows={4}
+              value={ticketDetails}
+              onChange={(event) => setTicketDetails(event.target.value)}
+              placeholder="Describe the issue or question."
+              className="mt-1.5 w-full resize-y rounded-xl border bg-white px-3 py-2 text-[13px] outline-none focus:border-[#3a7d4e]"
+              style={{ borderColor: "#e2e8e4" }}
+            />
+          </label>
+          <label className="block text-[12.5px] font-medium text-[#3d4a41]">
+            Priority
+            <select
+              value={ticketPriority}
+              onChange={(event) => {
+                if (event.target.value === "Low" || event.target.value === "Medium" || event.target.value === "High") {
+                  setTicketPriority(event.target.value);
+                }
+              }}
+              className="mt-1.5 h-10 w-full rounded-xl border bg-white px-3 text-[13px] outline-none focus:border-[#3a7d4e]"
+              style={{ borderColor: "#e2e8e4" }}
+            >
+              <option>Low</option>
+              <option>Medium</option>
+              <option>High</option>
+            </select>
+          </label>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -47,13 +47,20 @@ const oauthCallbackPage = `
 `
 
 export default function Login({
+<<<<<<< HEAD
   onGoogleSignIn,
   audience = "administrator",
 }: {
   onGoogleSignIn: (idToken: string) => Promise<void>;
+=======
+  onSignIn,
+  audience = "desktop",
+}: {
+  onSignIn: (email: string, password: string, role: "professor" | "staff") => Promise<void>;
+>>>>>>> 62ca81248ff571ac03d81a66d3545d67f1f47dba
   audience?: string;
 }) {
-  const [role, setRole] = useState<"administrator" | "professor" | "staff">("professor")
+  const [role, setRole] = useState<"professor" | "staff">("professor")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [show, setShow] = useState(false)
@@ -250,8 +257,13 @@ export default function Login({
               Sign in to access your account.
             </p>
 
+<<<<<<< HEAD
             {audience !== "desktop" && <div className="mt-5 grid grid-cols-3 gap-2">
               {(["administrator", "professor", "staff"] as const).map((option) => {
+=======
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              {(["professor", "staff"] as const).map((option) => {
+>>>>>>> 62ca81248ff571ac03d81a66d3545d67f1f47dba
                 const selected = role === option
                 return (
                   <button
@@ -295,15 +307,15 @@ export default function Login({
 
             <div className="min-h-10 flex items-center justify-center text-center">
               {role === "professor" ? (
-                <>
+                <div className="flex-column items-center gap-1 py-4">
                   <p className="text-[12px] font-semibold" style={{ color: BRAND }}>For Professors</p>
                   <p className="text-[12px]" style={{ color: "#68798a" }}>
                     Use your registered Google account to continue.
                   </p>
-                </>
+                </div>
               ) : (
                 <p className="leading-none text-[12px]" style={{ color: "#68798a" }}>
-                  {role === "administrator" ? "Administrator sign-in." : "Use your registered email and password."}
+                  Use your registered email and password.
                 </p>
               )}
             </div>

@@ -14,6 +14,8 @@ import SystemSettings from "@/pages/Admin/SystemSettings";
 import StaffOverview from "@/pages/Staff/Overview";
 import StaffApprovals from "@/pages/Staff/Approvals";
 import StaffAnnouncements from "@/pages/Professor/Announcements";
+import StaffSupport from "@/pages/Professor/Support";
+import StaffChat from "@/pages/Professor/Chat";
 
 function StaffRootWithAuth() {
   const { signOut, user } = useAuth();
@@ -63,6 +65,8 @@ export const desktopRouter = createHashRouter([
       { index: true, Component: StaffOverview },
       { path: "approvals", Component: StaffApprovals },
       { path: "announcements", Component: StaffAnnouncements },
+      { path: "support", Component: StaffSupport },
+      { path: "chat", Component: StaffChat },
       { path: "settings", Component: UserSettings },
       { path: "*", Component: StaffOverview },
     ],

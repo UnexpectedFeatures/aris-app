@@ -19,8 +19,8 @@ Create a desktop installer with `npm run desktop:package`.
 
 | Role | Email | Password |
 | --- | --- | --- |
-| Administrator | `admin@ucc.edu.ph` | `Admin12345` |
 | Professor | `professor@ucc.edu.ph` | `Professor123` |
+| Staff | `staff@ucc.edu.ph` | `Staff12345` |
 
 ## Backend Contract
 

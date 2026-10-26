@@ -128,6 +128,10 @@ export const profHelpNav: NavItem[] = [
     ),
   },
 ]
+export const staffHelpNav: NavItem[] = profHelpNav.map((item) => ({
+  ...item,
+  path: item.path.replace("/prof/", "/staff/"),
+}))
 export const profSettingsNav: NavItem[] = [
   {
     path: "/prof/settings/preferences",
