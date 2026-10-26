@@ -65,6 +65,7 @@ export const desktopRouter = createHashRouter([
       { index: true, Component: StaffOverview },
       { path: "approvals", Component: StaffApprovals },
       { path: "announcements", Component: StaffAnnouncements },
+      { path: "notifications", Component: StaffAnnouncements },
       { path: "support", Component: StaffSupport },
       { path: "chat", Component: StaffChat },
       { path: "settings", Component: UserSettings },
@@ -77,6 +78,7 @@ export const desktopRouter = createHashRouter([
     children: [
       { index: true, Component: ProfOverview },
       { path: "announcements", Component: ProfAnnouncements },
+      { path: "notifications", Component: ProfAnnouncements },
       { path: "submit", Component: ProfSubmit },
       { path: "history", Component: ProfHistory },
       { path: "meet", Component: ProfMeet },
