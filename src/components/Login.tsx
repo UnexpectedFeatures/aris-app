@@ -197,12 +197,12 @@ export default function Login({
 
             <div className="min-h-10 flex items-center justify-center text-center">
               {role === "professor" ? (
-                <>
+                <div className="flex-column items-center gap-1 py-4">
                   <p className="text-[12px] font-semibold" style={{ color: BRAND }}>For Professors</p>
                   <p className="text-[12px]" style={{ color: "#68798a" }}>
                     {isDemoMode ? "Use the temporary demo professor account." : "Professor sign-in is unavailable outside demo mode."}
                   </p>
-                </>
+                </div>
               ) : (
                 <p className="leading-none text-[12px]" style={{ color: "#68798a" }}>
                   Use your registered email and password.
