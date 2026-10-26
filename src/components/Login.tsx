@@ -47,17 +47,10 @@ const oauthCallbackPage = `
 `
 
 export default function Login({
-<<<<<<< HEAD
   onGoogleSignIn,
-  audience = "administrator",
-}: {
-  onGoogleSignIn: (idToken: string) => Promise<void>;
-=======
-  onSignIn,
   audience = "desktop",
 }: {
-  onSignIn: (email: string, password: string, role: "professor" | "staff") => Promise<void>;
->>>>>>> 62ca81248ff571ac03d81a66d3545d67f1f47dba
+  onGoogleSignIn: (idToken: string) => Promise<void>;
   audience?: string;
 }) {
   const [role, setRole] = useState<"professor" | "staff">("professor")
@@ -257,13 +250,8 @@ export default function Login({
               Sign in to access your account.
             </p>
 
-<<<<<<< HEAD
-            {audience !== "desktop" && <div className="mt-5 grid grid-cols-3 gap-2">
-              {(["administrator", "professor", "staff"] as const).map((option) => {
-=======
             <div className="mt-5 grid grid-cols-2 gap-2">
               {(["professor", "staff"] as const).map((option) => {
->>>>>>> 62ca81248ff571ac03d81a66d3545d67f1f47dba
                 const selected = role === option
                 return (
                   <button
@@ -303,7 +291,7 @@ export default function Login({
                   </button>
                 )
               })}
-            </div>}
+            </div>
 
             <div className="min-h-10 flex items-center justify-center text-center">
               {role === "professor" ? (

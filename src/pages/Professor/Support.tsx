@@ -104,7 +104,10 @@ export default function ProfSupport() {
         actions={
           <>
             <GhostButton onClick={() => setShowTicketForm(false)}>Cancel</GhostButton>
-            <PrimaryButton onClick={() => document.getElementById("support-ticket-form")?.requestSubmit()}>
+            <PrimaryButton onClick={() => {
+              const form = document.getElementById("support-ticket-form");
+              if (form instanceof HTMLFormElement) form.requestSubmit();
+            }}>
               Create Ticket
             </PrimaryButton>
           </>
