@@ -233,6 +233,11 @@ export default function ProfMeet() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [avError, setAvError] = useState<string | null>(null);
 
+  // Live Meet Caption & Transcript State
+  const [liveTranscript, setLiveTranscript] = useState<{ who: string; text: string; t: string }[]>([]);
+  const liveTranscriptRef = useRef<{ who: string; text: string; t: string }[]>([]);
+  liveTranscriptRef.current = liveTranscript;
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -329,6 +334,36 @@ export default function ProfMeet() {
       if (unlisten) unlisten();
     };
   }, [oauthEmail]);
+
+  // Listen for real-time live caption chunks captured from Google Meet WebView
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isCancelled = false;
+
+    listen<{ who: string; text: string; t: string }>("meet-transcript-chunk", (event) => {
+      if (!event.payload || !event.payload.text) return;
+      console.log(`%c[ARIS FRONTEND] 🎙️ CAPTION RECEIVED: [${event.payload.t}] ${event.payload.who}: ${event.payload.text}`, "color: #16a34a; font-weight: bold;");
+      setLiveTranscript((prev) => {
+        // Prevent immediate duplicates
+        const last = prev[prev.length - 1];
+        if (last && last.who === event.payload.who && last.text === event.payload.text) {
+          return prev;
+        }
+        return [...prev, event.payload];
+      });
+    }).then((fn) => {
+      if (isCancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -517,6 +552,8 @@ export default function ProfMeet() {
 
   const handleStartInstant = async () => {
     isEndingCallRef.current = false;
+    setLiveTranscript([]);
+    void invoke("clear_in_app_meet_transcript").catch(() => {});
     const url = buildMeetUrl("new", oauthEmail);
     const windowTitle = `ARIS Google Meet — ${oauthName} (${oauthEmail})`;
 
@@ -544,6 +581,8 @@ export default function ProfMeet() {
     }
 
     isEndingCallRef.current = false;
+    setLiveTranscript([]);
+    void invoke("clear_in_app_meet_transcript").catch(() => {});
     const url = buildMeetUrl(clean, oauthEmail);
     const windowTitle = `ARIS Meeting (${clean}) — ${oauthEmail}`;
 
@@ -564,6 +603,8 @@ export default function ProfMeet() {
 
   const handleJoinSession = async (session: MeetSession) => {
     isEndingCallRef.current = false;
+    setLiveTranscript([]);
+    void invoke("clear_in_app_meet_transcript").catch(() => {});
     const url = buildMeetUrl(session.code, oauthEmail);
     const windowTitle = `ARIS — ${session.title} (${oauthEmail})`;
 
@@ -607,6 +648,27 @@ export default function ProfMeet() {
       // Close in-app meeting window
       await closeInAppMeet();
 
+      // Retrieve full captured transcript from Tauri backend
+      let finalTranscript: { who: string; text: string; t: string }[] = [];
+      try {
+        finalTranscript = await invoke<{ who: string; text: string; t: string }[]>("get_in_app_meet_transcript");
+      } catch {
+        finalTranscript = liveTranscriptRef.current;
+      }
+      if (!finalTranscript || finalTranscript.length === 0) {
+        finalTranscript = liveTranscriptRef.current;
+      }
+
+      const participants = Array.from(
+        new Set([oauthName, ...finalTranscript.map((t) => t.who)].filter(Boolean))
+      );
+      const transcriptSource = finalTranscript
+        .map((t) => `${t.t} - ${t.who}: ${t.text}`)
+        .join("\n");
+      const wordCount = transcriptSource
+        ? transcriptSource.split(/\s+/).filter(Boolean).length
+        : 0;
+
       const endedAtMs = Date.now();
       const durationSeconds = currentCall.elapsedSeconds;
       const durationMinutes = Math.max(1, Math.ceil(durationSeconds / 60));
@@ -614,6 +676,14 @@ export default function ProfMeet() {
       const endedAtDate = new Date(endedAtMs);
 
       const realUrl = buildMeetUrl(realCode, oauthEmail);
+
+      console.log("\n================== [ARIS FRONTEND] 🏁 SENDING MEETING & TRANSCRIPT TO DB ==================");
+      console.log("Meeting Code:", realCode);
+      console.log("Total Transcript Lines:", finalTranscript.length);
+      console.log("Transcript Data:", finalTranscript);
+      console.log("Participants:", participants);
+      console.log("Word Count:", wordCount);
+      console.log("============================================================================================\n");
 
       // Save directly to backend database (meeting_records & meeting_logs)
       try {
@@ -630,10 +700,14 @@ export default function ProfMeet() {
           start_time: startedAtDate.toTimeString().split(" ")[0],
           end_time: endedAtDate.toTimeString().split(" ")[0],
           meeting_date: startedAtDate.toISOString().split("T")[0],
-          status: "completed",
+          status: finalTranscript.length > 0 ? "summarized" : "completed",
           user_email: oauthEmail,
           professor_id: user?.id,
           info: `Google Meet hosted by ${oauthName} (${oauthEmail})`,
+          transcript: finalTranscript.length > 0 ? finalTranscript : undefined,
+          transcript_source: transcriptSource || undefined,
+          participants: participants.length > 0 ? participants : undefined,
+          word_count: wordCount > 0 ? wordCount : undefined,
         });
       } catch (err) {
         console.warn("DB save meeting failed:", err);
@@ -641,7 +715,11 @@ export default function ProfMeet() {
 
       // Refresh clean, real meetings list directly from the database
       await loadDbMeetings();
-      setToastMessage(`Call ended (${realCode}). Saved to database!`);
+      if (finalTranscript.length > 0) {
+        setToastMessage(`Call ended (${realCode}). Saved with ${finalTranscript.length} transcript lines!`);
+      } else {
+        setToastMessage(`Call ended (${realCode}). Saved to database!`);
+      }
     } finally {
       isEndingCallRef.current = false;
     }
@@ -891,6 +969,31 @@ export default function ProfMeet() {
                 <p className="text-[12px] text-[#a3d9b1] font-mono mt-1">
                   {activeCall.url}
                 </p>
+
+                {/* Live Caption & Transcript Feed */}
+                <div className="mt-4 rounded-xl bg-[#142618] border border-[#2b4c33] p-3 text-left">
+                  <div className="flex items-center justify-between text-[11px] mb-1.5 font-semibold text-[#a3d9b1]">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-[#4cd964] animate-pulse" />
+                      Live Meet Transcript ({liveTranscript.length} captured)
+                    </span>
+                    <span className="text-[10.5px] text-[#71967c]">Google Meet CC</span>
+                  </div>
+                  {liveTranscript.length === 0 ? (
+                    <p className="text-[11.5px] text-[#71967c] italic">
+                      Waiting for speech... Closed captions will automatically appear here as participants talk.
+                    </p>
+                  ) : (
+                    <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-[11px] text-[#e0f1e8] pr-1">
+                      {liveTranscript.slice(-4).map((chunk, idx) => (
+                        <div key={idx} className="leading-snug">
+                          <span className="text-[#a3d9b1] font-semibold">{chunk.who}:</span>{" "}
+                          <span>{chunk.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">

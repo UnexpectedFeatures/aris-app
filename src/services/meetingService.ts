@@ -37,6 +37,10 @@ export interface SaveMeetingPayload {
   info?: string;
   user_email?: string;
   professor_id?: string;
+  transcript?: { t: string; who: string; text: string }[];
+  transcript_source?: string;
+  participants?: string[];
+  word_count?: number;
 }
 
 interface ApiResponse<T> {
