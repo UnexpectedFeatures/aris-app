@@ -11,6 +11,9 @@ export type RecordTable = {
   meta?: string;
   columns: string[];
   rows: (string | number)[][];
+  datesHeld?: string;
+  topics?: string;
+  tasks?: string;
 };
 
 /** A filed AR / DTR payload, as captured on the Submit Record page. */
@@ -114,64 +117,117 @@ function DetailSection({
 
 function DetailTable({ num, table }: { num: string; table: RecordTable }) {
   return (
-    <div
-      className="rounded-2xl border overflow-hidden"
-      style={{ borderColor: "#eef1ef" }}
-    >
+    <div className="space-y-3">
       <div
-        className="flex items-center justify-between gap-3 px-4 py-2.5 border-b"
-        style={{ background: "#fafbfa", borderColor: "#eef1ef" }}
+        className="rounded-xl border overflow-hidden"
+        style={{ border: "1.5px solid #111c14" }}
       >
-        <p
-          className="text-[11.5px] font-bold tracking-wide"
-          style={{ color: "#111c14" }}
-        >
-          {num} · {table.title}
-        </p>
-        {table.meta && (
-          <p className="text-[11px]" style={{ color: "#8fa394" }}>
-            {table.meta}
-          </p>
-        )}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr style={{ color: "#b6c3ba" }}>
-              {table.columns.map((c) => (
-                <th
-                  key={c}
-                  className="px-4 py-2 text-[10.5px] uppercase tracking-wide font-semibold whitespace-nowrap"
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left">
+            <tbody>
+              {/* Header: COURSE [N] | TITLE */}
+              <tr className="border-b" style={{ borderColor: "#111c14" }}>
+                <td
+                  className="w-36 px-4 py-3 text-center font-black text-[12.5px] uppercase bg-[#fafbfa] text-[#111c14] border-r"
+                  style={{ borderColor: "#111c14" }}
                 >
-                  {c}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {table.rows.map((row, ri) => (
-              <tr
-                key={ri}
-                className="border-t"
-                style={{ borderColor: "#f2f4f2" }}
-              >
-                {row.map((cell, ci) => (
-                  <td
-                    key={ci}
-                    className="px-4 py-2.5 text-[12.5px] whitespace-nowrap"
-                    style={{
-                      color: ci === 0 ? "#111c14" : "#5a6b5e",
-                      fontWeight: ci === 0 ? 600 : 400,
-                    }}
+                  COURSE {num}
+                </td>
+                <td
+                  colSpan={Math.max(1, table.columns.length - 1)}
+                  className="px-4 py-3 font-bold text-[13px] uppercase text-[#111c14] bg-white"
+                >
+                  {table.title}
+                </td>
+              </tr>
+
+              {/* Columns */}
+              <tr className="border-b bg-[#fafbfa]" style={{ borderColor: "#111c14" }}>
+                {table.columns.map((c, ci) => (
+                  <th
+                    key={c}
+                    className={`px-3 py-2 text-center text-[11px] font-bold text-[#111c14] ${ci < table.columns.length - 1 ? 'border-r' : ''}`}
+                    style={{ borderColor: "#111c14" }}
                   >
-                    {cell}
-                  </td>
+                    {c}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+
+              {/* Rows */}
+              {table.rows.map((row, ri) => (
+                <tr
+                  key={ri}
+                  className="border-b"
+                  style={{ borderColor: "#111c14" }}
+                >
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      className={`px-3 py-2.5 text-center text-[12px] font-medium text-[#111c14] ${ci < row.length - 1 ? 'border-r' : ''}`}
+                      style={{ borderColor: "#111c14" }}
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+
+              {/* Classes held */}
+              {(table.meta || table.datesHeld) && (
+                <tr className="bg-[#fafbfa]">
+                  <td
+                    colSpan={table.columns.length}
+                    className="px-4 py-2.5 text-[12px] text-[#111c14]"
+                  >
+                    <span className="font-bold">Classes held: </span>
+                    <span className="font-medium">{table.datesHeld || table.meta}</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {/* Topics Discussed & Task/Activity Description (Per Course Table) */}
+      {(table.topics || table.tasks) && (
+        <div
+          className="rounded-xl border overflow-hidden"
+          style={{ border: "1.5px solid #111c14" }}
+        >
+          <table className="w-full border-collapse">
+            <tbody>
+              {table.topics && (
+                <tr className="border-b" style={{ borderColor: "#111c14" }}>
+                  <td
+                    className="w-44 px-4 py-2.5 text-[12px] font-bold text-[#111c14] bg-[#fafbfa] border-r align-top"
+                    style={{ borderColor: "#111c14" }}
+                  >
+                    Topics Discussed
+                  </td>
+                  <td className="px-4 py-2.5 text-[12.5px] font-bold uppercase text-[#111c14] bg-white">
+                    {table.topics}
+                  </td>
+                </tr>
+              )}
+              {table.tasks && (
+                <tr>
+                  <td
+                    className="w-44 px-4 py-2.5 text-[12px] font-bold text-[#111c14] bg-[#fafbfa] border-r align-top"
+                    style={{ borderColor: "#111c14" }}
+                  >
+                    Task/Activity Description
+                  </td>
+                  <td className="px-4 py-2.5 text-[12.5px] font-medium text-[#111c14] bg-white">
+                    {table.tasks}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
