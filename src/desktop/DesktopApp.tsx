@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { RouterProvider } from "react-router";
 import Login from "@/components/Login";
 import { AuthContext } from "@/app/authContext";
@@ -18,6 +18,14 @@ function getStoredUser(): UserAccount | null {
 
 export default function DesktopApp() {
   const [user, setUser] = useState<UserAccount | null>(getStoredUser);
+
+  useEffect(() => {
+    const onUserUpdated = () => {
+      setUser(getStoredUser());
+    };
+    window.addEventListener("aris-user-updated", onUserUpdated);
+    return () => window.removeEventListener("aris-user-updated", onUserUpdated);
+  }, []);
 
   const signIn = async (idToken: string) => {
     const session = await signInWithGoogle(idToken);
