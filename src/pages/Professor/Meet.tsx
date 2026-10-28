@@ -72,11 +72,12 @@ function buildMeetUrl(codeOrUrl: string, accountEmail?: string): string {
   }
 }
 
-async function openInAppMeet(url: string, title?: string) {
+async function openInAppMeet(url: string, title?: string, hostName?: string) {
   try {
     await invoke("open_in_app_meet", {
       url,
       title: title ?? "ARIS — Google Meet",
+      hostName: hostName || undefined,
     });
   } catch (err) {
     console.warn("Tauri in-app window invoke error:", err);
@@ -558,7 +559,7 @@ export default function ProfMeet() {
     const windowTitle = `ARIS Google Meet — ${oauthName} (${oauthEmail})`;
 
     // Launch inside ARIS native in-app window with the captured OAuth account
-    await openInAppMeet(url, windowTitle);
+    await openInAppMeet(url, windowTitle, oauthName);
 
     setActiveCall({
       id: "instant-" + Date.now(),
@@ -586,7 +587,7 @@ export default function ProfMeet() {
     const url = buildMeetUrl(clean, oauthEmail);
     const windowTitle = `ARIS Meeting (${clean}) — ${oauthEmail}`;
 
-    await openInAppMeet(url, windowTitle);
+    await openInAppMeet(url, windowTitle, oauthName);
 
     setActiveCall({
       id: "join-" + Date.now(),
@@ -608,7 +609,7 @@ export default function ProfMeet() {
     const url = buildMeetUrl(session.code, oauthEmail);
     const windowTitle = `ARIS — ${session.title} (${oauthEmail})`;
 
-    await openInAppMeet(url, windowTitle);
+    await openInAppMeet(url, windowTitle, oauthName);
 
     setActiveCall({
       id: session.id,
@@ -931,7 +932,8 @@ export default function ProfMeet() {
                 onClick={() =>
                   void openInAppMeet(
                     activeCall.url,
-                    `ARIS Google Meet — ${oauthName} (${oauthEmail})`
+                    `ARIS Google Meet — ${oauthName} (${oauthEmail})`,
+                    oauthName
                   )
                 }
                 className="flex items-center gap-1.5 rounded-xl border border-[#d2e7d8] bg-[#f0f7f2] px-3 py-1.5 text-[12.5px] font-medium text-[#3a7d4e] hover:bg-[#e3f0e6] transition"
@@ -1002,7 +1004,8 @@ export default function ProfMeet() {
                   onClick={() =>
                     void openInAppMeet(
                       activeCall.url,
-                      `ARIS Google Meet — ${oauthName} (${oauthEmail})`
+                      `ARIS Google Meet — ${oauthName} (${oauthEmail})`,
+                      oauthName
                     )
                   }
                   className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-[13px] font-semibold text-[#0d1a10] transition hover:bg-[#eef1ef]"

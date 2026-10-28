@@ -53,7 +53,12 @@ async fn close_oauth_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<String>) -> Result<(), String> {
+async fn open_in_app_meet(
+  app: tauri::AppHandle,
+  url: String,
+  title: Option<String>,
+  host_name: Option<String>,
+) -> Result<(), String> {
   let win_title = title.unwrap_or_else(|| "ARIS — Google Meet".to_string());
 
   // Clear previous session transcript buffer
@@ -68,6 +73,9 @@ async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<Stri
   }
 
   let parsed_url: url::Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
+
+  let host_display_json = serde_json::to_string(&host_name.unwrap_or_else(|| "You".to_string()))
+    .unwrap_or_else(|_| "\"You\"".to_string());
 
   let app_handle_res = app.clone();
   let builder = tauri::WebviewWindowBuilder::new(
@@ -110,10 +118,11 @@ async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<Stri
       }
     }
   })
-  .initialization_script(r#"
+  .initialization_script(format!("window.__ARIS_HOST_NAME__ = {};\n", host_display_json) + r#"
     // ARIS Meet Integration & Live Caption Scraper
     (function () {
-      console.log('[ARIS] Injected into Google Meet window');
+      const HOST_NAME = window.__ARIS_HOST_NAME__ || 'You';
+      console.log('[ARIS] Injected into Google Meet window with Host:', HOST_NAME);
 
       let currentCode = "";
       let lastCommittedText = "";
@@ -169,7 +178,7 @@ async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<Stri
         lineCount++;
 
         const entry = {
-          who: (who || 'Participant').replace(/^[•\s]+/, '').trim(),
+          who: (who || HOST_NAME || 'You').replace(/^[•\s]+/, '').trim(),
           text: clean,
           t: formatTimeNow()
         };
@@ -222,6 +231,41 @@ async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<Stri
         );
       }
 
+      function parseSpeaker(container) {
+        if (!container) return '';
+        // 1. Text-based speaker classes
+        const nameEl = container.querySelector('.NWpY1d, div[jsname="r4nke"], .zs75Ib, .adEAEc, [data-self-name]');
+        if (nameEl && nameEl.textContent && nameEl.textContent.trim()) {
+          return nameEl.textContent.trim();
+        }
+        // 2. Avatar img alt (excluding generic words)
+        const imgEl = container.querySelector('img[alt]');
+        if (imgEl) {
+          const alt = (imgEl.getAttribute('alt') || '').trim();
+          if (alt && !alt.toLowerCase().includes('avatar') && !alt.toLowerCase().includes('profile') && !alt.toLowerCase().includes('picture')) {
+            return alt;
+          }
+        }
+        // 3. Parent container fallback
+        const parent = container.closest('div[jscontroller]') || container.parentElement;
+        if (parent && parent !== container) {
+          const pNameEl = parent.querySelector('.NWpY1d, div[jsname="r4nke"], .zs75Ib');
+          if (pNameEl && pNameEl.textContent && pNameEl.textContent.trim()) {
+            return pNameEl.textContent.trim();
+          }
+        }
+        return '';
+      }
+
+      function resolveSpeaker(raw) {
+        const s = (raw || '').trim();
+        const lower = s.toLowerCase();
+        if (lower === 'you' || lower.startsWith('you ') || lower.startsWith('you(') || lower === '' || lower === 'participant' || lower === 'speaker') {
+          return HOST_NAME || 'You';
+        }
+        return s;
+      }
+
       function extractCaptions() {
         // If not in the active call yet, don't scrape lobby noise
         const inCall = !!document.querySelector('button[aria-label^="Leave call" i], [role="button"][aria-label^="Leave call" i], button[data-tooltip*="Leave call" i]');
@@ -233,12 +277,12 @@ async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<Stri
         const turns = document.querySelectorAll('[aria-label="Captions"][role="region"] .nMcdL, .nMcdL');
         if (turns.length > 0) {
           turns.forEach((turn) => {
-            const sEl = turn.querySelector('.NWpY1d, .zs75Ib, .adEAEc, img[alt]');
+            const rawWho = parseSpeaker(turn);
+            const who = resolveSpeaker(rawWho);
             const tEl = turn.querySelector('.ygicle, .VbkSUe, .bh44bd, div.iTTPOb');
-            const who = sEl ? (sEl.getAttribute('alt') || sEl.textContent || '').trim() : '';
             const text = tEl ? (tEl.textContent || '').trim() : '';
             if (text && !isNoise(text)) {
-              results.push({ who: who || 'Participant', text });
+              results.push({ who, text });
             }
           });
         }
@@ -250,12 +294,9 @@ async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<Stri
             const text = (node.textContent || '').trim();
             if (!text || isNoise(text)) return;
             const parent = node.closest('.nMcdL') || node.closest('div[jscontroller]') || node.parentElement?.parentElement || node.parentElement;
-            let who = '';
-            if (parent) {
-              const sEl = parent.querySelector('.NWpY1d, .zs75Ib, .adEAEc, img[alt]');
-              if (sEl) who = sEl.getAttribute('alt') || sEl.textContent || '';
-            }
-            results.push({ who: who.trim() || 'Speaker', text });
+            const rawWho = parseSpeaker(parent);
+            const who = resolveSpeaker(rawWho);
+            results.push({ who, text });
           });
         }
 
@@ -265,11 +306,12 @@ async fn open_in_app_meet(app: tauri::AppHandle, url: String, title: Option<Stri
           containers.forEach((c) => {
             const full = (c.textContent || '').trim();
             if (!full || full.length < 2 || isNoise(full)) return;
-            let who = 'Speaker';
+            let who = HOST_NAME || 'You';
             let text = full;
             const colon = full.indexOf(':');
             if (colon > 0 && colon < 35) {
-              who = full.slice(0, colon).trim();
+              const possibleWho = full.slice(0, colon).trim();
+              who = resolveSpeaker(possibleWho);
               text = full.slice(colon + 1).trim();
             }
             if (text && !isNoise(text)) results.push({ who, text });
