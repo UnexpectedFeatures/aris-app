@@ -144,14 +144,14 @@ export default function ProfSubmit() {
   const [recordType, setRecordType] = useState("Accomplishment Report (AR)")
   const [period, setPeriod] = useState("September Cycle 1")
   const [facultyName, setFacultyName] = useState(user.name.toUpperCase())
-  const [facultyNumber, setFacultyNumber] = useState("289")
+  const [facultyNumber, setFacultyNumber] = useState("")
   const [college, setCollege] = useState("COLLEGE OF LIBERAL ARTS AND SCIENCES")
 
   const [courses, setCourses] = useState<CourseBlock[]>([
     {
       id: "course-1",
-      title: "INFORMATION MANAGEMENT",
-      datesHeld: "August 17–18, 19–20, 2026",
+      title: "",
+      datesHeld: "",
       columns: [
         { id: "code", label: "CODE" },
         { id: "section", label: "PROGRAM, YEAR & SECTION" },
@@ -160,56 +160,15 @@ export default function ProfSubmit() {
         { id: "time", label: "TIME" },
         { id: "campus", label: "CAMPUS" },
       ],
-      rows: [
-        {
-          id: "r1",
-          code: "CC 105",
-          section: "BSIT 2B",
-          units: 5,
-          days: "Monday",
-          time: "7:00AM–10:00AM / 1:00PM–3:00PM",
-          campus: "CONGRESS",
-        },
-        {
-          id: "r2",
-          code: "CC 105",
-          section: "BSIT 2A",
-          units: 5,
-          days: "Tuesday",
-          time: "1:00PM–6:00PM",
-          campus: "CONGRESS",
-        },
-        {
-          id: "r3",
-          code: "CC 105",
-          section: "BSIS 2-B",
-          units: 5,
-          days: "Wednesday",
-          time: "1:30PM–6:30PM",
-          campus: "CONGRESS",
-        },
-        {
-          id: "r4",
-          code: "CC 105",
-          section: "BSIS 2-A",
-          units: 5,
-          days: "Thursday",
-          time: "1:30PM–6:30PM",
-          campus: "CONGRESS",
-        },
-      ],
+      rows: [],
     },
   ])
 
   const [editingColId, setEditingColId] = useState<string | null>(null)
   const [classModalCourseId, setClassModalCourseId] = useState<string | null>(null)
   const [classRowDraft, setClassRowDraft] = useState<ClassRowDraft>(emptyClassRow)
-  const [topics, setTopics] = useState(
-    "a) Aggregate Functions\nb) Group By, Order By, Desc and Desc",
-  )
-  const [tasks, setTasks] = useState(
-    "a) Aggregate Functions and definitions.\nb) Giving Activities and setting PPT and Learning materials through G-Class.",
-  )
+  const [topics, setTopics] = useState("")
+  const [tasks, setTasks] = useState("")
   const [notes, setNotes] = useState("")
   const [uploadedFile, setUploadedFile] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -329,8 +288,8 @@ export default function ProfSubmit() {
   const handleAddCourse = () => {
     const newCourse: CourseBlock = {
       id: `course_${Date.now()}`,
-      title: `NEW COURSE SUBJECT ${courses.length + 1}`,
-      datesHeld: "August 21–22, 2026",
+      title: `COURSE SUBJECT ${courses.length + 1}`,
+      datesHeld: "",
       columns: [
         { id: "code", label: "CODE" },
         { id: "section", label: "PROGRAM, YEAR & SECTION" },
@@ -339,17 +298,7 @@ export default function ProfSubmit() {
         { id: "time", label: "TIME" },
         { id: "campus", label: "CAMPUS" },
       ],
-      rows: [
-        {
-          id: `r_${Date.now()}`,
-          code: "",
-          section: "",
-          units: 3,
-          days: "",
-          time: "",
-          campus: "",
-        },
-      ],
+      rows: [],
     }
     setCourses([...courses, newCourse])
   }
@@ -679,7 +628,17 @@ export default function ProfSubmit() {
                     </thead>
 
                     <tbody>
-                      {course.rows.map((row, rowIdx) => (
+                      {course.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={course.columns.length + 1}
+                            className="text-center py-6 text-[12px] text-gray-400"
+                          >
+                            No classes added yet. Click &quot;+ Add Class&quot; below to add your class schedule.
+                          </td>
+                        </tr>
+                      ) : (
+                        course.rows.map((row, rowIdx) => (
                         <tr
                           key={row.id}
                           className="group transition-colors"
@@ -717,7 +676,7 @@ export default function ProfSubmit() {
                             className="px-2 py-2.5 border-b text-center"
                             style={{ borderColor: "#f0f4f1" }}
                           >
-                            {course.rows.length > 1 && (
+                            {course.rows.length > 0 && (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -740,7 +699,8 @@ export default function ProfSubmit() {
                             )}
                           </td>
                         </tr>
-                      ))}
+                      ))
+                      )}
                     </tbody>
                   </table>
                 </div>

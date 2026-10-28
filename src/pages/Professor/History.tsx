@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react"
+import { useAuth } from "@/app/authContext"
 import { BRAND } from "@/config/navigation"
 import { useResource } from "@/hooks/useResource"
 import {
@@ -9,8 +10,6 @@ import {
   Badge,
   Tabs,
   Modal,
-  arTable,
-  dtrTable,
   statusTone,
   SubmissionDetail,
   StatCard,
@@ -20,204 +19,34 @@ import {
   type StatusKind,
 } from "@/components/ui"
 
-const FACULTY = {
-  name: "Juan M. Rivera",
-  number: "289",
-  college: "College of Liberal Arts and Sciences",
-  initials: "JR",
-}
-
 type HistoryRecord = {
+  id?: string
   type: RecordKind
   period: string
   units: string
   submitted: string
   status: StatusKind
+  stage?: string
+  currentStage?: string
   /** One-line summary of the event shown in the detail modal. */
   event: string
   record: RecordPayload
 }
 
-const demoRecords: HistoryRecord[] = [
-  {
-    type: "AR",
-    period: "Sep Cycle 1",
-    units: "18 outputs",
-    submitted: "Sep 6, 12:41 PM",
-    status: "Approved",
-    event: "AR submitted · Sep Cycle 1 · 18 outputs",
-    record: {
-      period: "September Cycle 1",
-      reference: "AR-2026-0906-0091",
-      facultyName: FACULTY.name,
-      facultyNumber: FACULTY.number,
-      college: FACULTY.college,
-      tables: [
-        arTable("CC 105 — INFORMATION MANAGEMENT", "September 1–5, 2026", [
-          [
-            "CC 105",
-            "BSIT 2B",
-            5,
-            "Monday",
-            "7:00AM–10:00AM / 1:00PM–3:00PM",
-            "CONGRESS",
-          ],
-          ["CC 105", "BSIT 2A", 5, "Tuesday", "1:00PM–6:00PM", "CONGRESS"],
-          ["CC 105", "BSIS 2-B", 5, "Wednesday", "1:30PM–6:30PM", "CONGRESS"],
-        ]),
-      ],
-      topics:
-        "a) Aggregate functions\nb) Group By, Order By and Having clauses",
-      tasks:
-        "a) Discussed aggregate functions and definitions.\nb) Gave activities and posted the PPT and learning materials through G-Class.",
-      attachment: "AR_Rivera_SepCycle1.pdf · 1.1 MB",
-      reviewer: "HR Office — Ana Bautista",
-      reviewedAt: "Sep 8, 2026 · 10:22 AM",
-      remark:
-        "All 18 outputs verified against the syllabus. Forwarded to accounting for payroll processing.",
-    },
-  },
-  {
-    type: "DTR",
-    period: "Sep Cycle 1",
-    units: "22 days",
-    submitted: "Sep 6, 12:39 PM",
-    status: "Pending",
-    event: "DTR submitted · Sep Cycle 1 · 22 days",
-    record: {
-      period: "September Cycle 1",
-      reference: "DTR-2026-0906-0089",
-      facultyName: FACULTY.name,
-      facultyNumber: FACULTY.number,
-      college: FACULTY.college,
-      tables: [
-        dtrTable("DTR — September 1–5, 2026", "22 duty days logged", [
-          ["Sep 01", "7:52 AM", "5:04 PM", 8.2],
-          ["Sep 02", "8:05 AM", "5:10 PM", 8.1],
-          ["Sep 03", "7:58 AM", "5:00 PM", 8.1],
-        ]),
-      ],
-      attachment: "DTR_Rivera_SepCycle1.xlsx · 82 KB",
-      reviewer: "L. Bautista (College Secretary)",
-      reviewedAt: "Sep 7, 2026 · 9:05 AM",
-      remark: "Names and entries verified. Routing to HR for endorsement.",
-    },
-  },
-  {
-    type: "AR",
-    period: "Aug Cycle 2",
-    units: "16 outputs",
-    submitted: "Aug 22, 4:02 PM",
-    status: "Approved",
-    event: "AR submitted · Aug Cycle 2 · 16 outputs",
-    record: {
-      period: "August Cycle 2",
-      reference: "AR-2026-0822-0233",
-      facultyName: FACULTY.name,
-      facultyNumber: FACULTY.number,
-      college: FACULTY.college,
-      tables: [
-        arTable("CC 105 — INFORMATION MANAGEMENT", "August 11–22, 2026", [
-          ["CC 105", "BSIT 2A", 5, "Tuesday", "1:00PM–6:00PM", "CONGRESS"],
-          ["CC 105", "BSIS 2-A", 5, "Thursday", "1:30PM–6:30PM", "CONGRESS"],
-        ]),
-      ],
-      topics: "a) Normalization\nb) Entity relationship modelling",
-      tasks:
-        "a) Workshop on ER diagramming.\nb) Graded exercise on second normal form, returned with feedback.",
-      attachment: "AR_Rivera_AugCycle2.pdf · 1.0 MB",
-      reviewer: "HR Office — Ana Bautista",
-      reviewedAt: "Aug 24, 2026 · 9:40 AM",
-      remark:
-        "Complete and curriculum-aligned. Approved and endorsed to accounting.",
-    },
-  },
-  {
-    type: "DTR",
-    period: "Aug Cycle 2",
-    units: "21 days",
-    submitted: "Aug 22, 3:58 PM",
-    status: "Rejected",
-    event: "DTR rejected by HR · Aug Cycle 2 · 21 days",
-    record: {
-      period: "August Cycle 2",
-      reference: "DTR-2026-0822-0231",
-      facultyName: FACULTY.name,
-      facultyNumber: FACULTY.number,
-      college: FACULTY.college,
-      tables: [
-        dtrTable("DTR — August 11–22, 2026", "21 duty days logged", [
-          ["Aug 11", "8:02 AM", "5:07 PM", 8.1],
-          ["Aug 12", "—", "5:03 PM", 0],
-          ["Aug 13", "8:11 AM", "5:00 PM", 7.8],
-        ]),
-      ],
-      attachment: "DTR_Rivera_AugCycle2.xlsx · 79 KB",
-      reviewer: "HR Office — Ana Bautista",
-      reviewedAt: "Aug 23, 2026 · 11:12 AM",
-      remark:
-        "Rejected: three biometric entries were logged under an unregistered employee number. Refile with the corrected entries.",
-    },
-  },
-  {
-    type: "AR",
-    period: "Aug Cycle 1",
-    units: "17 outputs",
-    submitted: "Aug 8, 10:15 AM",
-    status: "Approved",
-    event: "AR submitted · Aug Cycle 1 · 17 outputs",
-    record: {
-      period: "August Cycle 1",
-      reference: "AR-2026-0808-0176",
-      facultyName: FACULTY.name,
-      facultyNumber: FACULTY.number,
-      college: FACULTY.college,
-      tables: [
-        arTable("CC 105 — INFORMATION MANAGEMENT", "August 1–8, 2026", [
-          ["CC 105", "BSIT 2B", 5, "Monday", "7:00AM–10:00AM", "CONGRESS"],
-          ["CC 105", "BSIS 2-B", 5, "Wednesday", "1:30PM–6:30PM", "CONGRESS"],
-        ]),
-      ],
-      topics: "a) Relational model\nb) Primary and foreign keys",
-      tasks:
-        "a) Lecture on keys and constraints.\nb) Hands-on exercise creating tables with referential integrity.",
-      attachment: "AR_Rivera_AugCycle1.pdf · 950 KB",
-      reviewer: "HR Office — Ana Bautista",
-      reviewedAt: "Aug 10, 2026 · 8:55 AM",
-      remark: "Verified. Topics match the approved curriculum for week 1.",
-    },
-  },
-  {
-    type: "DTR",
-    period: "Aug Cycle 1",
-    units: "22 days",
-    submitted: "Aug 8, 10:11 AM",
-    status: "Approved",
-    event: "DTR approved by HR · Aug Cycle 1 · 22 days",
-    record: {
-      period: "August Cycle 1",
-      reference: "DTR-2026-0808-0175",
-      facultyName: FACULTY.name,
-      facultyNumber: FACULTY.number,
-      college: FACULTY.college,
-      tables: [
-        dtrTable("DTR — August 1–8, 2026", "22 duty days verified", [
-          ["Aug 01", "7:45 AM", "5:00 PM", 8.3],
-          ["Aug 02", "7:52 AM", "5:06 PM", 8.2],
-          ["Aug 03", "7:58 AM", "5:01 PM", 8.1],
-        ]),
-      ],
-      attachment: "DTR_Rivera_AugCycle1.xlsx · 81 KB",
-      reviewer: "HR Office — Ana Bautista",
-      reviewedAt: "Aug 9, 2026 · 2:18 PM",
-      remark: "All 22 logged days verified for payroll.",
-    },
-  },
-]
+export type LatestSubmission = {
+  type: RecordKind
+  period: string
+  units: string
+  reference: string
+  filed: string
+  status: StatusKind
+  currentStage: string
+  currentSince: string
+}
 
 /* ─── Latest submission routing ────────────────────────────────────────────── */
 
-type StageState = "done" | "current" | "pending"
+type StageState = "done" | "current" | "pending" | "rejected"
 
 type RoutingStage = {
   label: string
@@ -242,96 +71,150 @@ const stageIcon = (path: ReactNode) => (
   </svg>
 )
 
-const demoLatestSubmission = {
-  type: "DTR" as const,
-  period: "September Cycle 1",
-  units: "22 days",
-  reference: "DTR-2026-0906-0088",
-  filed: "Sep 6, 2026 · 12:39 PM",
-  status: "Pending" as const,
-  currentStage: "College Secretary",
-  currentSince: "Sep 7, 9:05 AM",
-}
-
-// Device → Checker → Secretary → HR → Accounting
-const routingStages: RoutingStage[] = [
-  {
-    label: "Device",
-    owner: "Your device",
-    note: "Filed from Chrome",
-    when: "Sep 6, 12:39 PM",
-    state: "done",
-    icon: stageIcon(
-      <>
-        <rect x="3" y="4" width="18" height="12" rx="2" />
-        <path d="M8 20h8M12 16v4" />
-      </>,
-    ),
-  },
-  {
-    label: "Checker",
-    owner: "Prof. R. Alonzo",
-    note: "22 days verified",
-    when: "Sep 6, 1:15 PM",
-    state: "done",
-    icon: stageIcon(
-      <>
-        <rect x="5" y="3" width="14" height="18" rx="2" />
-        <path d="M9 12l2 2 4-4" />
-      </>,
-    ),
-  },
-  {
-    label: "Secretary",
-    owner: "L. Bautista",
-    note: "Routing to HR",
-    when: "Sep 7, 9:05 AM",
-    state: "current",
-    icon: stageIcon(
-      <>
-        <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-      </>,
-    ),
-  },
-  {
-    label: "HR",
-    owner: "Ana Bautista",
-    note: "Awaiting endorsement",
-    state: "pending",
-    icon: stageIcon(
-      <>
-        <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-      </>,
-    ),
-  },
-  {
-    label: "Accounting",
-    owner: "Payroll Office",
-    note: "Awaiting HR approval",
-    state: "pending",
-    icon: stageIcon(
-      <>
-        <rect x="4" y="3" width="16" height="18" rx="2" />
-        <path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h8" />
-      </>,
-    ),
-  },
-]
-
 const AMBER = "#d99a2b"
+const RED = "#c0392b"
+
+function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
+  const stage = (submission.currentStage || "Checker").toLowerCase()
+  const isApproved = submission.status === "Approved"
+  const isRejected = submission.status === "Rejected" || submission.status === "Disapproved"
+
+  // Stage order:
+  // 0: Device
+  // 1: Checker
+  // 2: Secretary
+  // 3: HR
+  // 4: Accounting
+
+  const stageRank = isApproved
+    ? 5
+    : stage.includes("account") || stage.includes("payroll")
+    ? 4
+    : stage.includes("hr") || stage.includes("human")
+    ? 3
+    : stage.includes("sec") || stage.includes("dept") || stage.includes("department")
+    ? 2
+    : 1
+
+  const getState = (rank: number): StageState => {
+    if (rank < stageRank) return "done"
+    if (rank === stageRank) return isApproved ? "done" : isRejected ? "rejected" : "current"
+    return "pending"
+  }
+
+  return [
+    {
+      label: "Device",
+      owner: "Your device",
+      note: "Filed successfully",
+      when: submission.filed,
+      state: "done",
+      icon: stageIcon(
+        <>
+          <rect x="3" y="4" width="18" height="12" rx="2" />
+          <path d="M8 20h8M12 16v4" />
+        </>,
+      ),
+    },
+    {
+      label: "Checker",
+      owner: "Faculty Checker",
+      note:
+        getState(1) === "done"
+          ? "Verified"
+          : getState(1) === "current"
+          ? "Reviewing entries"
+          : getState(1) === "rejected"
+          ? "Disapproved"
+          : "Awaiting review",
+      when: getState(1) === "done" || getState(1) === "current" || getState(1) === "rejected" ? submission.filed : undefined,
+      state: getState(1),
+      icon: stageIcon(
+        <>
+          <rect x="5" y="3" width="14" height="18" rx="2" />
+          <path d="M9 12l2 2 4-4" />
+        </>,
+      ),
+    },
+    {
+      label: "Secretary",
+      owner: "College Secretary",
+      note:
+        getState(2) === "done"
+          ? "Endorsed"
+          : getState(2) === "current"
+          ? "Routing to HR"
+          : getState(2) === "rejected"
+          ? "Disapproved"
+          : "Awaiting checker",
+      when: getState(2) === "current" || (getState(2) === "done" && stageRank > 2) ? submission.currentSince : undefined,
+      state: getState(2),
+      icon: stageIcon(
+        <>
+          <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+        </>,
+      ),
+    },
+    {
+      label: "HR",
+      owner: "Human Resources",
+      note:
+        getState(3) === "done"
+          ? "Verified & Endorsed"
+          : getState(3) === "current"
+          ? "Auditing records"
+          : getState(3) === "rejected"
+          ? "Disapproved"
+          : "Awaiting endorsement",
+      when: getState(3) === "current" || (getState(3) === "done" && stageRank > 3) ? submission.currentSince : undefined,
+      state: getState(3),
+      icon: stageIcon(
+        <>
+          <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        </>,
+      ),
+    },
+    {
+      label: "Accounting",
+      owner: "Payroll Office",
+      note: isApproved
+        ? "Cleared for payroll"
+        : getState(4) === "current"
+        ? "Payroll computation"
+        : getState(4) === "rejected"
+        ? "Disapproved"
+        : "Awaiting HR approval",
+      when: isApproved || getState(4) === "current" ? submission.currentSince : undefined,
+      state: getState(4),
+      icon: stageIcon(
+        <>
+          <rect x="4" y="3" width="16" height="18" rx="2" />
+          <path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h8" />
+        </>,
+      ),
+    },
+  ]
+}
 
 function StageNode({ s }: { s: RoutingStage }) {
   const accent =
-    s.state === "done" ? BRAND : s.state === "current" ? AMBER : "#c8d2cb"
+    s.state === "done"
+      ? BRAND
+      : s.state === "current"
+      ? AMBER
+      : s.state === "rejected"
+      ? RED
+      : "#c8d2cb"
+
   return (
     <div className="flex flex-col items-center text-center px-2">
       <span
-        className="relative z-10 w-9 h-9 rounded-full flex items-center justify-center"
+        className="relative z-10 w-9 h-9 rounded-full flex items-center justify-center transition-all"
         style={{
-          background: s.state === "done" ? BRAND : "#fff",
+          background: s.state === "done" ? BRAND : s.state === "rejected" ? RED : "#fff",
           border: `2px solid ${accent}`,
-          color: s.state === "done" ? "#fff" : accent,
-          boxShadow: s.state === "current" ? `0 0 0 4px ${AMBER}22` : "none",
+          color: s.state === "done" || s.state === "rejected" ? "#fff" : accent,
+          boxShadow: s.state === "current" ? `0 0 0 4px ${AMBER}22` : s.state === "rejected" ? `0 0 0 4px ${RED}22` : "none",
         }}
       >
         {s.state === "done" ? (
@@ -346,6 +229,19 @@ function StageNode({ s }: { s: RoutingStage }) {
           >
             <path d="M5 13l4 4L19 7" />
           </svg>
+        ) : s.state === "rejected" ? (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="w-4 h-4"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         ) : (
           s.icon
         )}
@@ -356,9 +252,11 @@ function StageNode({ s }: { s: RoutingStage }) {
           color:
             s.state === "current"
               ? "#996515"
+              : s.state === "rejected"
+              ? "#c0392b"
               : s.state === "done"
-                ? "#111c14"
-                : "#b6c3ba",
+              ? "#111c14"
+              : "#b6c3ba",
         }}
       >
         {s.label}
@@ -368,7 +266,14 @@ function StageNode({ s }: { s: RoutingStage }) {
       </p>
       <p
         className="text-[10.5px] mt-1 leading-snug"
-        style={{ color: s.state === "pending" ? "#c8d2cb" : "#5a6b5e" }}
+        style={{
+          color:
+            s.state === "pending"
+              ? "#c8d2cb"
+              : s.state === "rejected"
+              ? "#c0392b"
+              : "#5a6b5e",
+        }}
       >
         {s.note}
       </p>
@@ -382,7 +287,48 @@ function StageNode({ s }: { s: RoutingStage }) {
   )
 }
 
-function LatestSubmissionCard({ submission }: { submission: typeof demoLatestSubmission }) {
+function LatestSubmissionCard({
+  submission,
+}: {
+  submission: LatestSubmission | null
+}) {
+  if (!submission || !submission.reference) {
+    return (
+      <Card className="mb-4 py-8 text-center border-dashed">
+        <p className="text-[13px] font-medium" style={{ color: "#5a6b5e" }}>
+          No active submissions filed yet
+        </p>
+        <p className="text-[12px] mt-1" style={{ color: "#8fa394" }}>
+          Submit an Accomplishment Report or DTR to track real-time approval routing.
+        </p>
+      </Card>
+    )
+  }
+
+  const isApproved = submission.status === "Approved"
+  const isRejected = submission.status === "Rejected" || submission.status === "Disapproved"
+  const routingStages = getRoutingStages(submission)
+
+  const stage = (submission.currentStage || "Checker").toLowerCase()
+  const stageRank = isApproved
+    ? 5
+    : stage.includes("account") || stage.includes("payroll")
+    ? 4
+    : stage.includes("hr") || stage.includes("human")
+    ? 3
+    : stage.includes("sec") || stage.includes("dept") || stage.includes("department")
+    ? 2
+    : 1
+
+  const nextStop =
+    stageRank === 1
+      ? "College Secretary"
+      : stageRank === 2
+      ? "Human Resources"
+      : stageRank === 3
+      ? "Accounting (Payroll Office)"
+      : "Payroll Disbursement"
+
   return (
     <Card className="mb-4">
       <div className="flex items-start justify-between gap-4">
@@ -391,8 +337,7 @@ function LatestSubmissionCard({ submission }: { submission: typeof demoLatestSub
             Latest Submission
           </p>
           <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
-            {submission.type} · {submission.period} ·{" "}
-            {submission.units} · filed {submission.filed}
+            {submission.type} · {submission.period} · {submission.units} · filed {submission.filed}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -410,41 +355,58 @@ function LatestSubmissionCard({ submission }: { submission: typeof demoLatestSub
 
       <div
         className="flex items-center gap-2 mt-3.5 px-3.5 py-2.5 rounded-xl text-[12px]"
-        style={{ background: "#fbf1de", color: "#996515" }}
+        style={{
+          background: isApproved ? "#eaf4ee" : isRejected ? "#fbecec" : "#fbf1de",
+          color: isApproved ? "#2f7043" : isRejected ? "#c0392b" : "#996515",
+        }}
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          className="w-4 h-4 flex-shrink-0"
-        >
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3 2" />
-        </svg>
-        Currently with the {submission.currentStage} since{" "}
-        {submission.currentSince} — next stop: Human Resources.
+        {isApproved ? (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 flex-shrink-0">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        ) : isRejected ? (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 flex-shrink-0">
+            <circle cx="12" cy="12" r="9" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-4 h-4 flex-shrink-0">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+        )}
+        <span>
+          {isApproved
+            ? "Fully verified and approved for payroll processing."
+            : isRejected
+            ? `Disapproved at the ${submission.currentStage} stage — returned for faculty correction.`
+            : `Currently with the ${submission.currentStage} since ${submission.currentSince} — next stop: ${nextStop}.`}
+        </span>
       </div>
 
       <div className="mt-5 overflow-x-auto">
         <div className="relative min-w-[720px]">
           {/* connector rail: from the centre of each stage to the next */}
           <div className="absolute top-[17px] left-0 right-0 h-[2px]">
-            {[0, 1, 2, 3].map((i) => (
-              <span
-                key={i}
-                className="absolute h-[2px] rounded-full"
-                style={{
-                  left: `${10 + i * 20}%`,
-                  width: "20%",
-                  background:
-                    routingStages[i + 1].state === "pending"
-                      ? "#e2e8e4"
-                      : BRAND,
-                }}
-              />
-            ))}
+            {[0, 1, 2, 3].map((i) => {
+              const fromDone = routingStages[i].state === "done"
+              const toReached = routingStages[i + 1].state !== "pending"
+              const toRejected = routingStages[i + 1].state === "rejected"
+              const color = toRejected ? RED : fromDone && toReached ? BRAND : "#e2e8e4"
+
+              return (
+                <span
+                  key={i}
+                  className="absolute h-[2px] rounded-full transition-colors"
+                  style={{
+                    left: `${10 + i * 20}%`,
+                    width: "20%",
+                    background: color,
+                  }}
+                />
+              )
+            })}
           </div>
           <div className="relative grid grid-cols-5">
             {routingStages.map((s) => (
@@ -455,26 +417,60 @@ function LatestSubmissionCard({ submission }: { submission: typeof demoLatestSub
       </div>
 
       <p className="text-[11.5px] mt-3" style={{ color: "#b6c3ba" }}>
-        The record moves automatically to the next stage. You will be notified
-        once it reaches HR.
+        The record moves automatically to the next stage upon verification.
       </p>
     </Card>
   )
 }
 
 export default function ProfHistory() {
-  const { data: records } = useResource("/professor/submissions", demoRecords)
-  const { data: latestSubmission } = useResource("/professor/submissions/latest", demoLatestSubmission)
+  const { user } = useAuth()
+  const emailQuery = user?.email ? `?email=${encodeURIComponent(user.email)}` : ""
+  const { data: rawRecords, loading, reload } = useResource<HistoryRecord[]>(
+    `/professor/submissions${emailQuery}`,
+    [],
+  )
+  const records = Array.isArray(rawRecords) ? rawRecords : []
+  const { data: latestSubmission } = useResource<LatestSubmission | null>(
+    `/professor/submissions/latest${emailQuery}`,
+    null,
+  )
   const [tab, setTab] = useState("All")
+  const [searchQuery, setSearchQuery] = useState("")
   const [selected, setSelected] = useState<{
     row: HistoryRecord
     idx: number
   } | null>(null)
   const tabs = ["All", "AR", "DTR"]
-  const rows = records.filter((r) => tab === "All" || r.type === tab)
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : "ME"
+
+  const rows = records.filter((r) => {
+    if (tab !== "All" && r.type !== tab) return false
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      const matchPeriod = r.period?.toLowerCase().includes(q)
+      const matchRef =
+        r.id?.toLowerCase().includes(q) ||
+        r.record?.reference?.toLowerCase().includes(q)
+      const matchUnits = r.units?.toLowerCase().includes(q)
+      const matchStatus = r.status?.toLowerCase().includes(q)
+      return Boolean(matchPeriod || matchRef || matchUnits || matchStatus)
+    }
+    return true
+  })
   const approvedCount = records.filter((record) => record.status === "Approved").length
   const pendingCount = records.filter((record) => record.status === "Pending").length
-  const rejectedCount = records.filter((record) => record.status === "Rejected" || record.status === "Disapproved").length
+  const rejectedCount = records.filter(
+    (record) => record.status === "Rejected" || record.status === "Disapproved",
+  ).length
 
   return (
     <div className="pb-2">
@@ -482,18 +478,32 @@ export default function ProfHistory() {
         title="Submission History"
         subtitle="Every AR / DTR you have filed, with its verification outcome."
         action={
-          <GhostButton>
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              className="w-4 h-4"
-            >
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-            </svg>
-            Export
-          </GhostButton>
+          <div className="flex items-center gap-2">
+            <GhostButton onClick={() => reload()}>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+              >
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </GhostButton>
+            <GhostButton>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                className="w-4 h-4"
+              >
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+              </svg>
+              Export
+            </GhostButton>
+          </div>
         }
       />
 
@@ -516,7 +526,11 @@ export default function ProfHistory() {
           style={{ borderColor: "#eef1ef" }}
         >
           <Tabs tabs={tabs} value={tab} onChange={setTab} />
-          <SearchInput placeholder="Search records" />
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search records by period, reference..."
+          />
         </div>
         <div
           className="grid min-w-[760px] grid-cols-[0.7fr_1.2fr_1.3fr_1.6fr_1fr] px-5 py-2.5 text-[11px] uppercase tracking-wide font-semibold"
@@ -528,40 +542,46 @@ export default function ProfHistory() {
           <span>Submitted</span>
           <span className="text-right">Status</span>
         </div>
-        {rows.map((r, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => setSelected({ row: r, idx: i })}
-            title="View submission detail"
-            className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.3fr_1.6fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer"
-            style={{ borderColor: "#f2f4f2" }}
-          >
-            <span
-              className="text-[12px] font-semibold"
-              style={{ color: r.type === "DTR" ? BRAND : "#3f8ecc" }}
+        {rows.length === 0 ? (
+          <div className="py-14 text-center text-[#8fa394] text-[13px]">
+            {loading ? "Loading submissions..." : "No submission records found."}
+          </div>
+        ) : (
+          rows.map((r, i) => (
+            <button
+              key={r.id || i}
+              type="button"
+              onClick={() => setSelected({ row: r, idx: i })}
+              title="View submission detail"
+              className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.3fr_1.6fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer"
+              style={{ borderColor: "#f2f4f2" }}
             >
-              {r.type}
-            </span>
-            <span className="text-[13px]" style={{ color: "#3d4a41" }}>
-              {r.period}
-            </span>
-            <span
-              className="text-[13px] tabular-nums"
-              style={{ color: "#8fa394" }}
-            >
-              {r.units}
-            </span>
-            <span className="text-[13px]" style={{ color: "#8fa394" }}>
-              {r.submitted}
-            </span>
-            <span className="flex justify-end">
-              <Badge tone={statusTone[r.status]} dot>
-                {r.status}
-              </Badge>
-            </span>
-          </button>
-        ))}
+              <span
+                className="text-[12px] font-semibold"
+                style={{ color: r.type === "DTR" ? BRAND : "#3f8ecc" }}
+              >
+                {r.type}
+              </span>
+              <span className="text-[13px]" style={{ color: "#3d4a41" }}>
+                {r.period}
+              </span>
+              <span
+                className="text-[13px] tabular-nums"
+                style={{ color: "#8fa394" }}
+              >
+                {r.units}
+              </span>
+              <span className="text-[13px]" style={{ color: "#8fa394" }}>
+                {r.submitted}
+              </span>
+              <span className="flex justify-end">
+                <Badge tone={statusTone[r.status]} dot>
+                  {r.status}
+                </Badge>
+              </span>
+            </button>
+          ))
+        )}
       </Card>
 
       <Modal
@@ -583,7 +603,7 @@ export default function ProfHistory() {
             record={selected.row.record}
             type={selected.row.type}
             status={selected.row.status}
-            initials={FACULTY.initials}
+            initials={initials}
             colorIndex={selected.idx}
             loggedAt={selected.row.submitted}
             event={selected.row.event}
