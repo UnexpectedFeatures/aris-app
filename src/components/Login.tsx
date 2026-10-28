@@ -133,6 +133,7 @@ export default function Login({
         scope: "openid email profile https://www.googleapis.com/auth/meetings.space.created",
         nonce: crypto.randomUUID(),
         state,
+        prompt: "select_account",
         include_granted_scopes: "true",
       }).toString()
       try {

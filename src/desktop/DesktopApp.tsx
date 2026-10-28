@@ -37,6 +37,7 @@ export default function DesktopApp() {
     sessionStorage.removeItem("aris-google-email");
     sessionStorage.removeItem("aris-google-access-token");
     localStorage.removeItem("aris-google-access-token");
+    localStorage.removeItem("aris-last-oauth-email");
     setUser(null);
   };
 
