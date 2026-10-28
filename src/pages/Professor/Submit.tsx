@@ -515,11 +515,22 @@ export default function ProfSubmit() {
       units: `${courses.length} course${courses.length === 1 ? "" : "s"}`,
       submitted: now,
       status: "Pending",
+      stage: "Checker",
+      currentStage: "Checker",
+      stage_key: "AR-AP-STG-1",
+      approval_stage: "AR-AP-STG-1",
+      stage_order: 1,
+      email: user?.email,
+      facultyEmail: user?.email,
+      facultyName: facultyName || user?.name || "Faculty",
+      facultyNumber: facultyNumber || "—",
       event: `${kind} submitted · ${period}`,
       record: {
         period,
         reference,
-        facultyName,
+        email: user?.email,
+        facultyEmail: user?.email,
+        facultyName: facultyName || user?.name || "Faculty",
         facultyNumber,
         college,
         tables: courses.map((course) => ({
@@ -542,18 +553,24 @@ export default function ProfSubmit() {
         tasks: combinedTasks || "Lecture and Discussion, Activity",
         notes,
         attachment: uploadedFile ?? undefined,
-        reviewer: "System — Intake",
+        reviewer: "Faculty Checker",
         reviewedAt: now,
         remark: "Received and queued for review.",
       },
     }
 
     try {
-      await saveResource("/professor/submissions", record)
+      // Submit directly to accomplishment_reports (and report_entries)
+      await saveResource("/professor/accomplishment-reports", record)
       navigate("/prof/history")
     } catch (reason) {
-      setSubmitError(reason instanceof Error ? reason.message : "Unable to submit this record.")
-      setIsSubmitting(false)
+      try {
+        await saveResource("/professor/submissions", record)
+        navigate("/prof/history")
+      } catch (fallbackErr) {
+        setSubmitError(reason instanceof Error ? reason.message : "Unable to submit this record.")
+        setIsSubmitting(false)
+      }
     }
   }
 

@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react"
+import { useState, useMemo, type ReactNode } from "react"
 import { useAuth } from "@/app/authContext"
 import { BRAND } from "@/config/navigation"
 import { useResource } from "@/hooks/useResource"
+import { demoAuditLogs, type AuditLog, type AuditApiResponse } from "@/data/demoAuditLogs"
 import {
   Card,
   PageTitle,
@@ -426,15 +427,116 @@ function LatestSubmissionCard({
 export default function ProfHistory() {
   const { user } = useAuth()
   const emailQuery = user?.email ? `?email=${encodeURIComponent(user.email)}` : ""
-  const { data: rawRecords, loading, reload } = useResource<HistoryRecord[]>(
-    `/professor/submissions${emailQuery}`,
-    [],
+  // Sourced directly from /audit, identical to how aris-web in audit logs gets it
+  const { data: rawData, loading, reload } = useResource<AuditApiResponse | AuditLog[]>(
+    `/audit${emailQuery}`,
+    demoAuditLogs,
   )
-  const records = Array.isArray(rawRecords) ? rawRecords : []
-  const { data: latestSubmission } = useResource<LatestSubmission | null>(
-    `/professor/submissions/latest${emailQuery}`,
-    null,
-  )
+
+  const logs: AuditLog[] = useMemo(() => {
+    if (Array.isArray(rawData)) return rawData
+    if (rawData && Array.isArray((rawData as AuditApiResponse).logs)) {
+      return (rawData as AuditApiResponse).logs
+    }
+    return demoAuditLogs
+  }, [rawData])
+
+  const allRecords: HistoryRecord[] = useMemo(() => {
+    return logs.map((log: any) => {
+      if (log.units && log.period && log.submitted && log.status) {
+        return log as HistoryRecord
+      }
+      const stageKey = (log.stage_key || log.approval_stage || "").toUpperCase()
+      const stageOrder =
+        log.stage_order ||
+        (stageKey === "AR-AP-STG-4" ? 4 : stageKey === "AR-AP-STG-3" ? 3 : stageKey === "AR-AP-STG-2" ? 2 : 1)
+
+      const stageRole =
+        log.stage_role ||
+        (stageOrder === 4
+          ? "Accounting"
+          : stageOrder === 3
+          ? "HR"
+          : stageOrder === 2
+          ? "Secretary"
+          : "Checker")
+
+      const status: StatusKind =
+        log.result === "Missing"
+          ? "Flagged"
+          : log.result === "Approved"
+          ? "Approved"
+          : log.result === "Rejected" || log.result === "Disapproved"
+          ? "Rejected"
+          : "Pending"
+
+      const units = log.target?.includes("·")
+        ? log.target.split("·")[1].trim()
+        : log.record?.tables?.length
+          ? `${log.record.tables.length} course${log.record.tables.length === 1 ? "" : "s"}`
+          : log.type === "DTR"
+            ? "22 days"
+            : "3 courses"
+      const period =
+        log.record?.period ||
+        (log.target?.includes("·") ? log.target.split("·")[0].trim() : "Current Cycle")
+      const submitted = log.record?.reviewedAt || log.time || "Recently"
+
+      return {
+        id: log.id || log.record?.reference,
+        type: log.type,
+        period,
+        units,
+        submitted,
+        status,
+        stage: stageRole,
+        currentStage: stageRole,
+        event: log.action ? `${log.action} · ${log.target}` : log.target || `${log.type} submitted`,
+        record: log.record,
+      } as HistoryRecord
+    })
+  }, [logs])
+
+  // Scope to the logged in professor if matched, otherwise show all records
+  const records: HistoryRecord[] = useMemo(() => {
+    if (!user?.email && !user?.name) return allRecords
+    const userEmail = user?.email?.toLowerCase().trim()
+    const userName = user?.name?.toLowerCase().trim()
+
+    const matched = allRecords.filter((r) => {
+      const rec = r.record
+      if (!rec) return false
+      const fName = rec.facultyName?.toLowerCase().trim() || ""
+      const email = ((rec as any).email || "").toLowerCase().trim()
+      return (
+        (userEmail && email && email === userEmail) ||
+        (userName && fName && (fName.includes(userName) || userName.includes(fName)))
+      )
+    })
+
+    return matched.length > 0 ? matched : allRecords
+  }, [allRecords, user])
+
+  const latestSubmission: LatestSubmission | null = useMemo(() => {
+    if (records.length === 0) return null
+    const sorted = [...records].sort((a, b) => {
+      const timeA = new Date(a.record?.reviewedAt || a.submitted).getTime()
+      const timeB = new Date(b.record?.reviewedAt || b.submitted).getTime()
+      if (!isNaN(timeA) && !isNaN(timeB)) return timeB - timeA
+      return 0
+    })
+    const latest = sorted[0] || records[0]
+    return {
+      type: latest.type,
+      period: latest.period,
+      units: latest.units,
+      reference: latest.record?.reference || latest.id || "AR-001",
+      filed: latest.submitted,
+      status: latest.status,
+      currentStage: latest.currentStage || latest.stage || "Checker",
+      currentSince: latest.submitted,
+    }
+  }, [records])
   const [tab, setTab] = useState("All")
   const [searchQuery, setSearchQuery] = useState("")
   const [selected, setSelected] = useState<{
@@ -461,8 +563,9 @@ export default function ProfHistory() {
         r.id?.toLowerCase().includes(q) ||
         r.record?.reference?.toLowerCase().includes(q)
       const matchUnits = r.units?.toLowerCase().includes(q)
+      const matchStage = r.stage?.toLowerCase().includes(q)
       const matchStatus = r.status?.toLowerCase().includes(q)
-      return Boolean(matchPeriod || matchRef || matchUnits || matchStatus)
+      return Boolean(matchPeriod || matchRef || matchUnits || matchStage || matchStatus)
     }
     return true
   })
@@ -533,12 +636,13 @@ export default function ProfHistory() {
           />
         </div>
         <div
-          className="grid min-w-[760px] grid-cols-[0.7fr_1.2fr_1.3fr_1.6fr_1fr] px-5 py-2.5 text-[11px] uppercase tracking-wide font-semibold"
+          className="grid min-w-[760px] grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] px-5 py-2.5 text-[11px] uppercase tracking-wide font-semibold"
           style={{ color: "#b6c3ba", background: "#fafbfa" }}
         >
           <span>Type</span>
           <span>Period</span>
           <span>Units</span>
+          <span>Stage</span>
           <span>Submitted</span>
           <span className="text-right">Status</span>
         </div>
@@ -553,7 +657,7 @@ export default function ProfHistory() {
               type="button"
               onClick={() => setSelected({ row: r, idx: i })}
               title="View submission detail"
-              className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.3fr_1.6fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer"
+              className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer"
               style={{ borderColor: "#f2f4f2" }}
             >
               <span
@@ -570,6 +674,44 @@ export default function ProfHistory() {
                 style={{ color: "#8fa394" }}
               >
                 {r.units}
+              </span>
+              <span className="text-[12px]">
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium text-[11.5px]"
+                  style={{
+                    background:
+                      r.stage === "Accounting"
+                        ? "#eaf4ee"
+                        : r.stage === "HR"
+                        ? "#fdf3e7"
+                        : r.stage === "Secretary"
+                        ? "#eef3fb"
+                        : "#f3f5f3",
+                    color:
+                      r.stage === "Accounting"
+                        ? "#2f7043"
+                        : r.stage === "HR"
+                        ? "#b45309"
+                        : r.stage === "Secretary"
+                        ? "#1d4ed8"
+                        : "#5a6b5e",
+                  }}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{
+                      background:
+                        r.stage === "Accounting"
+                          ? "#2f7043"
+                          : r.stage === "HR"
+                          ? "#b45309"
+                          : r.stage === "Secretary"
+                          ? "#1d4ed8"
+                          : "#8fa394",
+                    }}
+                  />
+                  {r.stage || "Checker"}
+                </span>
               </span>
               <span className="text-[13px]" style={{ color: "#8fa394" }}>
                 {r.submitted}

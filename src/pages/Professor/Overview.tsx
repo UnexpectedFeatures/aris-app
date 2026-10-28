@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { AreaChart, Area, ResponsiveContainer, XAxis, Tooltip } from "recharts";
 import { BRAND, BRAND_DARK } from "@/config/navigation";
 import { Card, PageTitle, PrimaryButton, Badge, StatCard, StatGrid } from "@/components/ui";
 import { useResource } from "@/hooks/useResource";
+import { demoAuditLogs, type AuditLog, type AuditApiResponse } from "@/data/demoAuditLogs";
 
 const trend = [
   { m: "Apr", v: 4 }, { m: "May", v: 6 }, { m: "Jun", v: 5 }, { m: "Jul", v: 8 }, { m: "Aug", v: 7 }, { m: "Sep", v: 9 },
@@ -20,18 +22,45 @@ const demoOverview = { trend, recent };
 
 export default function ProfOverview() {
   const navigate = useNavigate();
-  const { data } = useResource("/professor/dashboard", demoOverview);
-  const { trend: activityTrend, recent: recentSubmissions } = data;
+  // Sourced directly from /audit, identical to how aris-web in audit logs gets it
+  const { data: rawAudit } = useResource<AuditApiResponse | AuditLog[]>("/audit", demoAuditLogs);
+  const { data: dashboardData } = useResource("/professor/dashboard", demoOverview);
+
+  const logs: AuditLog[] = useMemo(() => {
+    if (Array.isArray(rawAudit)) return rawAudit;
+    if (rawAudit && Array.isArray((rawAudit as AuditApiResponse).logs)) {
+      return (rawAudit as AuditApiResponse).logs;
+    }
+    return demoAuditLogs;
+  }, [rawAudit]);
+
+  const recentSubmissions = useMemo(() => {
+    if (logs.length > 0) {
+      return logs.slice(0, 4).map((l) => ({
+        type: l.type,
+        label: l.target || `${l.record?.period || "Current Cycle"} · 18 outputs`,
+        time: l.time || l.record?.reviewedAt || "Recently",
+        status: (l.result === "Missing" ? "Pending" : l.result) as "Approved" | "Pending" | "Rejected",
+      }));
+    }
+    return dashboardData?.recent || recent;
+  }, [logs, dashboardData]);
+
+  const activityTrend = dashboardData?.trend || trend;
+  const totalCount = logs.length;
+  const approvedCount = logs.filter((l) => l.result === "Approved").length;
+  const pendingCount = logs.filter((l) => l.result === "Pending" || l.result === "Submitted").length;
+
   return (
     <div className="pb-2">
       <PageTitle title="Overview" subtitle="Your AR / DTR submissions at a glance." action={<PrimaryButton onClick={() => navigate("/prof/submit")}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M12 5v14M5 12h14" /></svg>New Submission</PrimaryButton>} />
 
       <StatGrid className="mb-4">
         {[
-          ["My Submissions", "39", "green", "+3 this cycle"],
+          ["My Submissions", String(totalCount || 39), "green", "+3 this cycle"],
           ["On-time Rate", "92%", "green", "+4.0%"],
-          ["Approved", "34", "green", "87%"],
-          ["Pending Review", "2", "amber", "awaiting HR"],
+          ["Approved", String(approvedCount || 34), "green", totalCount ? `${Math.round((approvedCount / totalCount) * 100)}%` : "87%"],
+          ["Pending Review", String(pendingCount || 2), "amber", "awaiting HR"],
         ].map(([l, v, tone, d]) => (
           <StatCard key={l} label={l} value={v} badge={<Badge tone={tone as "green" | "amber"}>{d}</Badge>} />
         ))}
@@ -79,7 +108,7 @@ export default function ProfOverview() {
                     <p className="text-[12.5px] truncate" style={{ color: "#3d4a41" }}>{r.label}</p>
                     <p className="text-[11px]" style={{ color: "#8fa394" }}>{r.time}</p>
                   </div>
-                  <Badge tone={statusTone[r.status]} dot>{r.status}</Badge>
+                  <Badge tone={statusTone[r.status as keyof typeof statusTone] || "amber"} dot>{r.status}</Badge>
                 </div>
               ))}
             </div>

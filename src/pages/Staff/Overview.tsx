@@ -1,7 +1,10 @@
+import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { Area, AreaChart, Line, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { BRAND, BRAND_DARK } from "@/config/navigation";
 import { Badge, Card, PageTitle, StatCard, StatGrid } from "@/components/ui";
+import { useResource } from "@/hooks/useResource";
+import { demoAuditLogs, type AuditLog, type AuditApiResponse } from "@/data/demoAuditLogs";
 
 const activity = [
   { month: "May", approved: 18, rejected: 9 },
@@ -12,24 +15,50 @@ const activity = [
   { month: "Oct", approved: 34, rejected: 13 },
 ];
 
-const pendingReviews = [
-  { type: "DTR", label: "September Cycle 1 · 18 outputs", time: "2 hours ago" },
+const fallbackPending = [
+  { type: "AR", label: "September Cycle 1 · 18 outputs", time: "2 hours ago" },
   { type: "DTR", label: "September Cycle 1 · 22 days", time: "2 hours ago" },
-  { type: "DTR", label: "August Cycle 2 · 16 outputs", time: "2 weeks ago" },
+  { type: "AR", label: "August Cycle 2 · 16 outputs", time: "2 weeks ago" },
   { type: "DTR", label: "August Cycle 2 · 21 days", time: "2 weeks ago" },
 ];
 
 export default function StaffOverview() {
   const navigate = useNavigate();
+  // Sourced directly from /audit, identical to how aris-web in audit logs gets it
+  const { data: rawAudit } = useResource<AuditApiResponse | AuditLog[]>("/audit", demoAuditLogs);
+
+  const logs: AuditLog[] = useMemo(() => {
+    if (Array.isArray(rawAudit)) return rawAudit;
+    if (rawAudit && Array.isArray((rawAudit as AuditApiResponse).logs)) {
+      return (rawAudit as AuditApiResponse).logs;
+    }
+    return demoAuditLogs;
+  }, [rawAudit]);
+
+  const pendingCount = logs.filter((l) => l.result === "Pending" || l.result === "Submitted").length;
+  const approvedCount = logs.filter((l) => l.result === "Approved").length;
+  const rejectedCount = logs.filter((l) => l.result === "Rejected" || l.result === "Flagged").length;
+
+  const pendingReviews = useMemo(() => {
+    const pendings = logs.filter((l) => l.result === "Pending" || l.result === "Submitted");
+    if (pendings.length > 0) {
+      return pendings.slice(0, 4).map((l) => ({
+        type: l.type,
+        label: l.target || `${l.record?.period || "Current Cycle"} · 18 outputs`,
+        time: l.time || l.record?.reviewedAt || "Recently",
+      }));
+    }
+    return fallbackPending;
+  }, [logs]);
 
   return (
     <div className="pb-2">
       <PageTitle title="Overview" subtitle="Your AR / DTR submissions at a glance." />
 
       <StatGrid className="mb-3">
-        <StatCard label="Pending Review" value="32" badge={<Badge tone="green">87%</Badge>} />
-        <StatCard label="Approved" value="34" badge={<Badge tone="green">87%</Badge>} />
-        <StatCard label="Rejected / Revise" value="2" badge={<Badge tone="green">100%</Badge>} />
+        <StatCard label="Pending Review" value={String(pendingCount || 32)} badge={<Badge tone="green">87%</Badge>} />
+        <StatCard label="Approved" value={String(approvedCount || 34)} badge={<Badge tone="green">87%</Badge>} />
+        <StatCard label="Rejected / Revise" value={String(rejectedCount || 2)} badge={<Badge tone="green">100%</Badge>} />
         <StatCard label="On-time Rate" value="92%" badge={<Badge tone="green">+4.0%</Badge>} />
       </StatGrid>
 
