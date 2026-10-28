@@ -109,21 +109,13 @@ export const profMeetNav: NavItem[] = [
 ]
 export const profHelpNav: NavItem[] = [
   {
-    path: "/prof/chat",
-    label: "Chat",
+    path: "/prof/tickets",
+    label: "Tickets",
     icon: icon(
       <>
-        <path d="M4 5h16v12H8l-4 3V5z" />
-      </>,
-    ),
-  },
-  {
-    path: "/prof/support",
-    label: "Support",
-    icon: icon(
-      <>
-        <circle cx="12" cy="12" r="10" />
-        <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" />
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+        <path d="M12 17h.01" />
       </>,
     ),
   },

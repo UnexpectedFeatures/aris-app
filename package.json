@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@fabianlars/tauri-plugin-oauth": "^2.1.0",
+    "@supabase/supabase-js": "^2.118.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/plugin-opener": "^2.7.2",
     "axios": "^1.19.0",

@@ -61,7 +61,7 @@ export default function ProfRoot({ onSignOut, user }: { onSignOut: () => void; u
             {meetNav.map((item) => <NavButton key={item.path} item={item} />)}
           </>}
           {helpNav.length > 0 && <>
-            <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Help</p>
+            <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Support</p>
             {helpNav.map((item) => <NavButton key={item.path} item={item} />)}
           </>}
           <p className="text-[10px] uppercase tracking-widest font-semibold px-3 pt-4 pb-1.5" style={{ color: "#b6c3ba" }}>Settings</p>
