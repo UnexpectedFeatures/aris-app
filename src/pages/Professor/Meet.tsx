@@ -36,6 +36,15 @@ import {
   StatGrid,
 } from "@/components/ui";
 import { saveMeetingToDb, fetchMeetingsFromDb } from "@/services/meetingService";
+import {
+  queueMeetTeachingLoadAutofill,
+  parseCourseString,
+  formatTime12,
+  getDayAbbrev,
+  type MinimalCourseInfo,
+} from "@/services/meetAutofillService";
+import { loadResource } from "@/services/dataSource";
+import { supabase } from "@/services/supabase";
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 
@@ -209,10 +218,55 @@ export default function ProfMeet() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Courses for Teaching Load allocation
+  const [availableCourses, setAvailableCourses] = useState<MinimalCourseInfo[]>([]);
+  const [instantCourse, setInstantCourse] = useState("CC 105 · BSIT 2B");
+
+  // Load professor's assigned curriculum courses
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadCourses() {
+      let list: MinimalCourseInfo[] = [];
+      try {
+        const res = await loadResource<MinimalCourseInfo[]>(
+          `/professor/courses?email=${encodeURIComponent(user.email)}`,
+          []
+        );
+        if (Array.isArray(res) && res.length > 0) list = res;
+      } catch {}
+      if (list.length === 0 && supabase) {
+        try {
+          const { data } = await supabase
+            .from("curriculum_courses")
+            .select("code, title, units")
+            .eq("is_active", true)
+            .order("code", { ascending: true });
+          if (data && data.length > 0) list = data;
+        } catch {}
+      }
+      if (list.length === 0) {
+        list = [
+          { code: "CC 105", title: "INFORMATION MANAGEMENT", units: 3 },
+          { code: "CC 116", title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES", units: 5 },
+          { code: "CS 201", title: "DATA STRUCTURES AND ALGORITHMS", units: 3 },
+          { code: "IT 301", title: "WEB SYSTEMS AND TECHNOLOGIES", units: 3 },
+        ];
+      }
+      if (!isCancelled) {
+        setAvailableCourses(list);
+      }
+    }
+    loadCourses();
+    return () => {
+      isCancelled = true;
+    };
+  }, [user.email]);
+
   // Active call state
   const [activeCall, setActiveCall] = useState<{
     id: string;
     title: string;
+    course: string;
     code: string;
     url: string;
     startedAt: number;
@@ -561,16 +615,20 @@ export default function ProfMeet() {
     // Launch inside ARIS native in-app window with the captured OAuth account
     await openInAppMeet(url, windowTitle, oauthName);
 
+    const courseForMeeting = instantCourse || "CC 105 · BSIT 2B";
+    const courseCodeOnly = courseForMeeting.split(/[·\-–]/)[0].trim();
+
     setActiveCall({
       id: "instant-" + Date.now(),
-      title: "Instant Class Session",
+      title: `${courseCodeOnly} Online Class Session`,
+      course: courseForMeeting,
       code: "Connecting...",
       url,
       startedAt: Date.now(),
       elapsedSeconds: 0,
     });
 
-    setToastMessage(`Google Meet connecting as ${oauthEmail}...`);
+    setToastMessage(`Google Meet connecting for ${courseForMeeting}...`);
   };
 
   const handleJoinWithCode = async (customCode?: string) => {
@@ -592,6 +650,7 @@ export default function ProfMeet() {
     setActiveCall({
       id: "join-" + Date.now(),
       title: `Meeting (${clean})`,
+      course: instantCourse || "CC 105 · BSIT 2B",
       code: clean,
       url,
       startedAt: Date.now(),
@@ -614,6 +673,7 @@ export default function ProfMeet() {
     setActiveCall({
       id: session.id,
       title: session.title,
+      course: session.course || instantCourse || "CC 105 · BSIT 2B",
       code: session.code,
       url,
       startedAt: Date.now(),
@@ -678,20 +738,51 @@ export default function ProfMeet() {
 
       const realUrl = buildMeetUrl(realCode, oauthEmail);
 
-      console.log("\n================== [ARIS FRONTEND] 🏁 SENDING MEETING & TRANSCRIPT TO DB ==================");
+      // Parse course & section info for Teaching Load autofill
+      const rawCourse = currentCall.course || instantCourse || "CC 105 · BSIT 2B";
+      const parsedCourse = parseCourseString(rawCourse, availableCourses);
+      const meetingDay = getDayAbbrev(startedAtDate);
+      const meetingTime = `${formatTime12(startedAtDate)} – ${formatTime12(endedAtDate)}`;
+      const meetingDateStr = startedAtDate.toISOString().split("T")[0];
+      const autofillTopic =
+        currentCall.title && !currentCall.title.startsWith("Instant Class") && !currentCall.title.startsWith("Meeting (")
+          ? currentCall.title
+          : `${parsedCourse.courseCode} Online Class Lecture & Discussion`;
+      const autofillTask = `Online Lecture and Class Discussion via Google Meet (Room: ${realCode}, Duration: ${durationMinutes}m)`;
+
+      console.log("\n================== [ARIS FRONTEND] 🏁 SAVING MEETING & QUEUING TEACHING LOAD ==================");
       console.log("Meeting Code:", realCode);
+      console.log("Allocated Course:", parsedCourse);
+      console.log("Held Date:", meetingDateStr);
+      console.log("Meeting Time:", meetingTime);
       console.log("Total Transcript Lines:", finalTranscript.length);
-      console.log("Transcript Data:", finalTranscript);
-      console.log("Participants:", participants);
-      console.log("Word Count:", wordCount);
       console.log("============================================================================================\n");
+
+      // Auto-queue teaching load autofill for Submit page
+      queueMeetTeachingLoadAutofill({
+        id: `meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        meetingId: currentCall.id,
+        courseCode: parsedCourse.courseCode,
+        courseTitle: parsedCourse.courseTitle,
+        section: parsedCourse.section,
+        units: parsedCourse.units,
+        meetingDate: meetingDateStr,
+        meetingDay,
+        meetingTime,
+        meetingCode: realCode,
+        durationMinutes,
+        topics: autofillTopic,
+        tasks: autofillTask,
+        campus: "CONGRESS",
+        createdAt: new Date().toISOString(),
+      });
 
       // Save directly to backend database (meeting_records & meeting_logs)
       try {
         await saveMeetingToDb({
           title: currentCall.title,
           name: currentCall.title,
-          course: "General Session",
+          course: `${parsedCourse.courseCode} · ${parsedCourse.section}`,
           meeting_code: realCode,
           meeting_url: realUrl,
           started_at: startedAtDate.toISOString(),
@@ -700,7 +791,7 @@ export default function ProfMeet() {
           duration_minutes: durationMinutes,
           start_time: startedAtDate.toTimeString().split(" ")[0],
           end_time: endedAtDate.toTimeString().split(" ")[0],
-          meeting_date: startedAtDate.toISOString().split("T")[0],
+          meeting_date: meetingDateStr,
           status: finalTranscript.length > 0 ? "summarized" : "completed",
           user_email: oauthEmail,
           professor_id: user?.id,
@@ -716,11 +807,9 @@ export default function ProfMeet() {
 
       // Refresh clean, real meetings list directly from the database
       await loadDbMeetings();
-      if (finalTranscript.length > 0) {
-        setToastMessage(`Call ended (${realCode}). Saved with ${finalTranscript.length} transcript lines!`);
-      } else {
-        setToastMessage(`Call ended (${realCode}). Saved to database!`);
-      }
+      setToastMessage(
+        `Call ended (${realCode}). Auto-added ${parsedCourse.courseCode} to Teaching Load on Submit page!`
+      );
     } finally {
       isEndingCallRef.current = false;
     }
@@ -1071,6 +1160,30 @@ export default function ProfMeet() {
               Launch an instant meeting room inside ARIS using your OAuth account (
               <span className="font-semibold text-[#3a7d4e]">{oauthEmail}</span>).
             </p>
+
+            <div className="mt-3">
+              <label className="block text-[10.5px] font-bold text-[#5a6b5e] uppercase tracking-wider mb-1">
+                Course for Teaching Load:
+              </label>
+              <select
+                value={instantCourse}
+                onChange={(e) => setInstantCourse(e.target.value)}
+                className="w-full h-8 rounded-lg border border-[#d2e7d8] bg-[#f9fbf9] px-2 text-[12px] font-semibold text-[#111c14] outline-none focus:border-[#3a7d4e]"
+              >
+                {availableCourses.map((c) => (
+                  <option key={c.code} value={`${c.code} · ${c.title}`}>
+                    {c.code} — {c.title}
+                  </option>
+                ))}
+                {!availableCourses.some((c) => c.code === "CC 105") && (
+                  <option value="CC 105 · BSIT 2B">CC 105 · BSIT 2B (Information Management)</option>
+                )}
+                {!availableCourses.some((c) => c.code === "CC 116") && (
+                  <option value="CC 116 · BSCS 3-B">CC 116 · BSCS 3-B (Advanced Web Systems)</option>
+                )}
+                <option value="Faculty Council">Faculty / Department Consultation</option>
+              </select>
+            </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-[#f0f2f0] flex flex-col gap-2">
@@ -1091,6 +1204,13 @@ export default function ProfMeet() {
             >
               <LinkIcon className="h-3.5 w-3.5" />
               Generate & Copy Link for Later
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/prof/submit")}
+              className="flex items-center justify-center gap-1 text-[11.5px] font-semibold text-[#009668] hover:underline transition"
+            >
+              Go to Submit Page (Teaching Load) →
             </button>
           </div>
         </Card>
@@ -1605,9 +1725,20 @@ export default function ProfMeet() {
                 onChange={(e) => setSchedCourse(e.target.value)}
                 className="w-full rounded-xl border border-[#e2e8e4] px-3 py-2 text-[13px] outline-none bg-white focus:border-[#3a7d4e]"
               >
-                <option value="CC 105 · BSIT 2B">CC 105 · BSIT 2B (Information Management)</option>
-                <option value="CS 201 · BSCS 2A">CS 201 · BSCS 2A (Data Structures)</option>
-                <option value="IT 301 · BSIT 3A">IT 301 · BSIT 3A (Web Development)</option>
+                {availableCourses.map((c) => (
+                  <option key={c.code} value={`${c.code} · ${c.title}`}>
+                    {c.code} — {c.title}
+                  </option>
+                ))}
+                {!availableCourses.some((c) => c.code === "CC 105") && (
+                  <option value="CC 105 · BSIT 2B">CC 105 · BSIT 2B (Information Management)</option>
+                )}
+                {!availableCourses.some((c) => c.code === "CS 201") && (
+                  <option value="CS 201 · BSCS 2A">CS 201 · BSCS 2A (Data Structures)</option>
+                )}
+                {!availableCourses.some((c) => c.code === "IT 301") && (
+                  <option value="IT 301 · BSIT 3A">IT 301 · BSIT 3A (Web Development)</option>
+                )}
                 <option value="Faculty Council">Faculty / Department Consultation</option>
                 <option value="Thesis Defense">Capstone / Thesis Defense</option>
               </select>

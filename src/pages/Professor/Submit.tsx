@@ -4,6 +4,16 @@ import { PageTitle } from "@/components/ui"
 import { useAuth } from "@/app/authContext"
 import { loadResource, saveResource } from "@/services/dataSource"
 import { supabase } from "@/services/supabase"
+import {
+  getPendingMeetTeachingLoadAutofills,
+  clearPendingMeetTeachingLoadAutofills,
+  recordAppliedMeetAutofills,
+  parseCourseString,
+  getDayAbbrev,
+  formatTime12,
+  type MeetTeachingLoadAutofill,
+} from "@/services/meetAutofillService"
+import { fetchMeetingsFromDb } from "@/services/meetingService"
 
 export type DbCourse = {
   id: string
@@ -224,6 +234,218 @@ export default function ProfSubmit() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Google Meet Auto-Fill state
+  const [autofillBanner, setAutofillBanner] = useState<{
+    message: string
+    courseCode: string
+    details?: string
+  } | null>(null)
+  const [isSyncingMeet, setIsSyncingMeet] = useState(false)
+
+  // Core handler to apply autofilled info from Google Meet to Teaching Load courses
+  const applyMeetAutofill = (items: MeetTeachingLoadAutofill[]) => {
+    if (!items || items.length === 0) return
+
+    setCourses((prevCourses) => {
+      let updated = [...prevCourses]
+
+      for (const item of items) {
+        const existingIdx = updated.findIndex(
+          (c) => c.code.trim().toUpperCase() === item.courseCode.trim().toUpperCase()
+        )
+
+        if (existingIdx >= 0) {
+          const ex = updated[existingIdx]
+          // 1. Add held date
+          const dates = getHeldDates(ex.datesHeld)
+          const newDates = dates.includes(item.meetingDate)
+            ? dates
+            : [...dates, item.meetingDate].sort()
+
+          // 2. Topics Discussed
+          let nextTopics = ex.topics
+          if (!nextTopics || nextTopics.trim() === "") {
+            nextTopics = item.topics
+          } else if (!nextTopics.toLowerCase().includes(item.topics.toLowerCase())) {
+            nextTopics = `${nextTopics} · ${item.topics}`
+          }
+
+          // 3. Task/Activity Description
+          let nextTasks = ex.tasks
+          if (!nextTasks || nextTasks.trim() === "") {
+            nextTasks = item.tasks
+          } else if (!nextTasks.toLowerCase().includes("google meet")) {
+            nextTasks = `${nextTasks} · ${item.tasks}`
+          }
+
+          // 4. Class Section Row
+          let rows = [...ex.rows]
+          const rowIdx = rows.findIndex(
+            (r) => r.section.trim().toUpperCase() === item.section.trim().toUpperCase()
+          )
+          if (rowIdx >= 0) {
+            if (!rows[rowIdx].time || rows[rowIdx].time.includes("6:30 – 9:00")) {
+              rows[rowIdx] = {
+                ...rows[rowIdx],
+                days: rows[rowIdx].days || item.meetingDay,
+                time: item.meetingTime,
+              }
+            }
+          } else {
+            rows.push({
+              id: `row_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              code: item.courseCode,
+              section: item.section,
+              units: item.units,
+              days: item.meetingDay,
+              time: item.meetingTime,
+              campus: item.campus || "CONGRESS",
+            })
+          }
+
+          updated[existingIdx] = {
+            ...ex,
+            datesHeld: newDates.join(","),
+            topics: nextTopics,
+            tasks: nextTasks,
+            rows,
+          }
+        } else {
+          // Brand new course block added from Google Meet
+          const newBlock: CourseBlock = {
+            id: `course_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            courseId: item.courseCode,
+            code: item.courseCode,
+            title: item.courseTitle,
+            units: item.units,
+            datesHeld: item.meetingDate,
+            topics: item.topics,
+            tasks: item.tasks,
+            rows: [
+              {
+                id: `row_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                code: item.courseCode,
+                section: item.section,
+                units: item.units,
+                days: item.meetingDay,
+                time: item.meetingTime,
+                campus: item.campus || "CONGRESS",
+              },
+            ],
+          }
+          updated.push(newBlock)
+        }
+      }
+
+      return updated
+    })
+
+    const last = items[items.length - 1]
+    setAutofillBanner({
+      courseCode: last.courseCode,
+      message: `Autofilled from Google Meet`,
+      details: `${last.courseCode} (${last.courseTitle}) — Held on ${formatHeldDate(last.meetingDate)} at ${last.meetingTime}.`,
+    })
+
+    clearPendingMeetTeachingLoadAutofills()
+    recordAppliedMeetAutofills(items)
+  }
+
+  // Real-time listener & initial check for Google Meet autofills
+  useEffect(() => {
+    const pending = getPendingMeetTeachingLoadAutofills()
+    if (pending && pending.length > 0) {
+      applyMeetAutofill(pending)
+    }
+
+    const handler = (e: Event) => {
+      const customEvt = e as CustomEvent<MeetTeachingLoadAutofill>
+      if (customEvt.detail) {
+        applyMeetAutofill([customEvt.detail])
+      }
+    }
+
+    window.addEventListener("aris:meet-autofill-added", handler)
+    return () => {
+      window.removeEventListener("aris:meet-autofill-added", handler)
+    }
+  }, [])
+
+  // Manual sync button to pull recent completed Google Meet session into teaching load
+  const handleSyncFromGoogleMeet = async () => {
+    setIsSyncingMeet(true)
+    try {
+      // 1. Check pending in localStorage
+      const pending = getPendingMeetTeachingLoadAutofills()
+      if (pending.length > 0) {
+        applyMeetAutofill(pending)
+        setIsSyncingMeet(false)
+        return
+      }
+
+      // 2. Fetch completed meetings from DB
+      const dbMeetings = await fetchMeetingsFromDb()
+      const completed = (dbMeetings || []).filter(
+        (m) => m.status === "completed" || m.status === "summarized"
+      )
+
+      if (completed.length === 0) {
+        setAutofillBanner({
+          courseCode: "INFO",
+          message: "No Recent Google Meet Found",
+          details: "Start and complete a Google Meet session on the Meet page first.",
+        })
+        setIsSyncingMeet(false)
+        return
+      }
+
+      // Take latest completed meeting
+      const latest = completed[completed.length - 1]
+      const parsed = parseCourseString(latest.course || "CC 105", availableCourses)
+      const sDate = latest.started_at ? new Date(latest.started_at) : new Date()
+      const eDate = latest.ended_at
+        ? new Date(latest.ended_at)
+        : new Date(sDate.getTime() + (latest.duration_seconds || 3600) * 1000)
+      const meetDate =
+        latest.meeting_date ||
+        (latest.started_at
+          ? String(latest.started_at).split("T")[0]
+          : new Date().toISOString().split("T")[0])
+      const meetTime =
+        latest.start_time && latest.end_time
+          ? `${latest.start_time} – ${latest.end_time}`
+          : `${formatTime12(sDate)} – ${formatTime12(eDate)}`
+      const meetDay = getDayAbbrev(sDate)
+      const meetTopic =
+        latest.name && !latest.name.startsWith("Instant Class")
+          ? latest.name
+          : `${parsed.courseCode} Online Class Lecture`
+
+      const item: MeetTeachingLoadAutofill = {
+        id: latest.id,
+        courseCode: parsed.courseCode,
+        courseTitle: parsed.courseTitle,
+        section: parsed.section,
+        units: parsed.units,
+        meetingDate: meetDate,
+        meetingDay: meetDay,
+        meetingTime: meetTime,
+        meetingCode: latest.meeting_code,
+        durationMinutes: latest.duration_minutes || 60,
+        topics: meetTopic,
+        tasks: `Online Lecture & Discussion via Google Meet (Room: ${latest.meeting_code}, Duration: ${latest.duration_minutes || 60}m)`,
+        campus: "CONGRESS",
+        createdAt: new Date().toISOString(),
+      }
+
+      applyMeetAutofill([item])
+    } catch (err) {
+      console.warn("Sync from Google Meet failed:", err)
+    } finally {
+      setIsSyncingMeet(false)
+    }
+  }
 
   /* ── 1. Fetch available courses and professor info from DB ── */
   useEffect(() => {
@@ -717,22 +939,75 @@ export default function ProfSubmit() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsAddCourseModalOpen(true)}
-              className="px-4 py-2 rounded-xl text-[12.5px] font-bold flex items-center gap-2 transition-all shadow-sm hover:shadow active:scale-98"
-              style={{
-                background: "linear-gradient(135deg, #009668 0%, #00b87a 100%)",
-                color: "#ffffff",
-              }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-4 h-4">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              Add Course ({unaddedCourses.length} available)
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSyncFromGoogleMeet}
+                disabled={isSyncingMeet}
+                className="px-3.5 py-2 rounded-xl text-[12.5px] font-bold border border-[#009668] bg-[#f0faf5] text-[#009668] hover:bg-[#e2f5ec] transition-all flex items-center gap-1.5 shadow-xs disabled:opacity-50 active:scale-98"
+                title="Sync and auto-fill latest Google Meet sessions into Teaching Load"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className={`w-3.5 h-3.5 ${isSyncingMeet ? "animate-spin" : ""}`}>
+                  <polygon points="23 7 16 12 23 17 23 7" />
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+                {isSyncingMeet ? "Syncing Meet…" : "Auto-fill from Meet"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAddCourseModalOpen(true)}
+                className="px-4 py-2 rounded-xl text-[12.5px] font-bold flex items-center gap-2 transition-all shadow-sm hover:shadow active:scale-98"
+                style={{
+                  background: "linear-gradient(135deg, #009668 0%, #00b87a 100%)",
+                  color: "#ffffff",
+                }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-4 h-4">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                Add Course ({unaddedCourses.length} available)
+              </button>
+            </div>
           </div>
+
+          {/* ── Google Meet Autofill Notification Banner ── */}
+          {autofillBanner && (
+            <div className="rounded-2xl border border-[#a3d9bc] bg-[#f0faf5] p-4 flex items-start justify-between gap-3 shadow-xs animate-in fade-in duration-200">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-[#009668] text-white flex items-center justify-center flex-shrink-0 shadow-sm mt-0.5">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-4 h-4">
+                    <polygon points="23 7 16 12 23 17 23 7" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-[13.5px] font-bold text-[#007a55]">
+                      {autofillBanner.message}
+                    </h4>
+                    <span className="rounded-full bg-[#009668] px-2 py-0.5 text-[10.5px] font-bold text-white">
+                      Live Synced
+                    </span>
+                  </div>
+                  {autofillBanner.details && (
+                    <p className="text-[12px] text-[#4b6a55] mt-0.5 leading-relaxed">
+                      {autofillBanner.details}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutofillBanner(null)}
+                className="text-[#718576] hover:text-[#111c14] text-[13px] font-bold p-1 rounded-lg hover:bg-[#e2f5ec]"
+                title="Dismiss banner"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {courses.map((course, idx) => (
             <div
