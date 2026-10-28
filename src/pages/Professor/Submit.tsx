@@ -79,6 +79,18 @@ function formatTime(time: string) {
   return `${displayHour}:${minute} ${period}`
 }
 
+function getHeldDates(value: string) {
+  return value
+    .split(",")
+    .map((date) => date.trim())
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+}
+
+function formatHeldDate(date: string) {
+  const [year, month, day] = date.split("-")
+  return `${month}/${day}/${year}`
+}
+
 /* ─── Shared Label ─────────────────────────────────────── */
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -184,9 +196,9 @@ export default function ProfSubmit() {
       code: "CC 116",
       title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
       units: 5,
-      datesHeld: "August 6, 10, 13, 2026",
+      datesHeld: "2026-08-21,2026-08-23,2026-08-30",
       topics: "DESIGNING LOG IN MODAL",
-      tasks: "Lecture and Discussion, Activity",
+      tasks: "",
       rows: [
         {
           id: "row-1",
@@ -294,9 +306,9 @@ export default function ProfSubmit() {
               code: matched.code,
               title: matched.title,
               units: matched.units,
-              datesHeld: "August 6, 10, 13, 2026",
-              topics: "DESIGNING LOG IN MODAL",
-              tasks: "Lecture and Discussion, Activity",
+              datesHeld: "2026-08-21,2026-08-23,2026-08-30",
+              topics: "",
+              tasks: "",
               rows: [
                 {
                   id: "row-1",
@@ -696,6 +708,13 @@ export default function ProfSubmit() {
               <p className="text-[12px] text-[#8fa394] mt-0.5">
                 Each course includes schedule rows, held dates, and discussed topics.
               </p>
+              <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[#a3d9bc] bg-[#f0faf5] px-3 py-2 text-[11.5px] font-semibold text-[#007a55]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 flex-shrink-0">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+                Click the highlighted fields to edit your teaching load details.
+              </div>
             </div>
 
             <button
@@ -720,7 +739,7 @@ export default function ProfSubmit() {
               key={course.id}
               className="bg-white rounded-2xl border p-6 transition-all"
               style={{
-                borderColor: "#cad5cc",
+                borderColor: "#a3d9bc",
                 boxShadow: "0 2px 8px 0 rgba(0,30,15,0.06)",
               }}
             >
@@ -741,6 +760,13 @@ export default function ProfSubmit() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-[#f0faf5] px-2.5 py-1.5 text-[11px] font-bold text-[#009668]">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                    Editable
+                  </span>
                   <button
                     type="button"
                     onClick={() => openClassRowModal(course.id)}
@@ -885,11 +911,11 @@ export default function ProfSubmit() {
                           >
                             <div className="flex items-center justify-center gap-1.5">
                               <span>{row.campus}</span>
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 flex items-center gap-1">
+                              <div className="ml-1 flex items-center gap-1">
                                 <button
                                   type="button"
                                   onClick={() => openClassRowModal(course.id, row)}
-                                  className="text-gray-400 hover:text-[#009668] p-0.5 rounded"
+                                  className="rounded p-0.5 text-[#009668] hover:bg-[#eaf4ee]"
                                   title="Edit row"
                                 >
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
@@ -900,7 +926,7 @@ export default function ProfSubmit() {
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteRow(course.id, row.id)}
-                                  className="text-gray-400 hover:text-red-500 p-0.5 rounded"
+                                  className="rounded p-0.5 text-gray-400 hover:bg-red-50 hover:text-red-500"
                                   title="Remove row"
                                 >
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
@@ -922,19 +948,55 @@ export default function ProfSubmit() {
                         style={{ border: "1.5px solid #111c14" }}
                         className="px-4 py-3 bg-[#fafbfa]"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-bold text-[12.5px] text-[#111c14] whitespace-nowrap">
                             Classes held:
                           </span>
                           <input
-                            type="text"
-                            value={course.datesHeld}
-                            placeholder="e.g. August 6, 10, 13, 2026"
+                            type="date"
+                            value=""
+                            aria-label={`Add a class date for ${course.code}`}
                             onChange={(e) =>
-                              updateCourseField(course.id, "datesHeld", e.target.value)
+                              e.target.value &&
+                              updateCourseField(
+                                course.id,
+                                "datesHeld",
+                                [...new Set([...getHeldDates(course.datesHeld), e.target.value])]
+                                  .sort()
+                                  .join(",")
+                              )
                             }
-                            className="flex-1 bg-transparent border-b border-dashed border-gray-400 px-1 py-0.5 text-[12.5px] font-semibold text-[#111c14] outline-none focus:border-[#009668] transition-colors placeholder:text-gray-400 placeholder:font-normal"
+                            className="rounded-md border border-dashed border-[#a3d9bc] bg-[#f8fdf9] px-2 py-1 text-[12.5px] font-semibold text-[#111c14] outline-none transition-colors focus:border-[#009668] focus:bg-white"
                           />
+                          <span className="text-[11.5px] font-medium text-[#718576]">
+                            Select each date from the calendar
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {getHeldDates(course.datesHeld).map((date) => (
+                              <span
+                                key={date}
+                                className="inline-flex items-center gap-1 rounded-md border border-[#a3d9bc] bg-[#f0faf5] px-2 py-1 text-[11.5px] font-semibold text-[#007a55]"
+                              >
+                                {formatHeldDate(date)}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateCourseField(
+                                      course.id,
+                                      "datesHeld",
+                                      getHeldDates(course.datesHeld)
+                                        .filter((heldDate) => heldDate !== date)
+                                        .join(",")
+                                    )
+                                  }
+                                  className="rounded text-[#718576] hover:bg-white hover:text-red-500"
+                                  aria-label={`Remove ${formatHeldDate(date)}`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -970,7 +1032,7 @@ export default function ProfSubmit() {
                           onChange={(e) =>
                             updateCourseField(course.id, "topics", e.target.value)
                           }
-                          className="w-full bg-transparent outline-none font-bold uppercase tracking-wide placeholder:normal-case placeholder:font-normal placeholder:text-gray-400 text-[#111c14] py-1"
+                          className="w-full rounded-md border border-dashed border-[#a3d9bc] bg-[#f8fdf9] px-2 py-1 font-bold uppercase tracking-wide text-[#111c14] outline-none placeholder:normal-case placeholder:font-normal placeholder:text-gray-400 focus:border-[#009668] focus:bg-white"
                         />
                       </td>
                     </tr>
@@ -992,7 +1054,7 @@ export default function ProfSubmit() {
                           onChange={(e) =>
                             updateCourseField(course.id, "tasks", e.target.value)
                           }
-                          className="w-full bg-transparent outline-none font-medium placeholder:text-gray-400 text-[#111c14] py-1"
+                          className="w-full rounded-md border border-dashed border-[#a3d9bc] bg-[#f8fdf9] px-2 py-1 font-medium text-[#111c14] outline-none placeholder:text-gray-400 focus:border-[#009668] focus:bg-white"
                         />
                       </td>
                     </tr>
