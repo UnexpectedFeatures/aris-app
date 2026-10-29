@@ -568,6 +568,7 @@ export function SubmissionDetail({
   colorIndex = 0,
   loggedAt,
   event,
+  onRevise,
 }: {
   record: RecordPayload;
   type: RecordKind;
@@ -577,7 +578,9 @@ export function SubmissionDetail({
   loggedAt: string;
   /** Optional one-line event summary, e.g. "AR submitted · Sep Cycle 1 · 18 outputs". */
   event?: string;
+  onRevise?: () => void;
 }) {
+  const isRejected = status === "Rejected" || status === "Disapproved";
   const nextNum = String(3 + r.tables.length).padStart(2, "0");
   const hasContent = Boolean(r.topics || r.tasks || r.notes || r.attachment);
   const tone = statusTone[status];
@@ -593,7 +596,7 @@ export function SubmissionDetail({
           <Avatar
             initials={initials}
             color={
-              status === "Rejected" ? "#c0392b" : initialsColor(colorIndex)
+              isRejected ? "#c0392b" : initialsColor(colorIndex)
             }
             size={38}
           />
@@ -613,6 +616,80 @@ export function SubmissionDetail({
           {status}
         </Badge>
       </div>
+
+      {/* Prominent Rejection Reason Banner if Rejected / Disapproved */}
+      {isRejected && (
+        <div
+          className="rounded-2xl p-4 border flex flex-col gap-2.5"
+          style={{
+            background: "#fff5f5",
+            borderColor: "#fed7d7",
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold text-[13px] text-[#c0392b]">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                className="w-4 h-4 flex-shrink-0"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>Submission Disapproved / Returned for Correction</span>
+            </div>
+            {onRevise && (
+              <button
+                type="button"
+                onClick={onRevise}
+                className="px-3 py-1.5 rounded-xl text-[12px] font-bold text-white shadow-xs transition-transform active:scale-98 flex items-center gap-1.5 cursor-pointer"
+                style={{ background: "#c0392b" }}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="w-3.5 h-3.5"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                Edit &amp; Resubmit
+              </button>
+            )}
+          </div>
+          <div
+            className="p-3.5 rounded-xl border bg-white"
+            style={{ borderColor: "#fed7d7" }}
+          >
+            <span className="font-bold block text-[10.5px] uppercase tracking-wider text-[#c0392b] mb-1">
+              Reason for Return / Reviewer Feedback:
+            </span>
+            <p className="font-semibold text-[13px] text-[#9b1c1c] leading-relaxed">
+              {r.remark ||
+                "This submission was returned for correction. Please review your entries, update any necessary changes, and resubmit."}
+            </p>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-[#c0392b]/90 px-0.5">
+            <span>
+              Returned by:{" "}
+              <strong className="font-semibold text-[#9b1c1c]">
+                {r.reviewer || "Faculty Checker"}
+              </strong>
+            </span>
+            <span>
+              Reviewed at:{" "}
+              <strong className="font-semibold text-[#9b1c1c]">
+                {r.reviewedAt || loggedAt}
+              </strong>
+            </span>
+          </div>
+        </div>
+      )}
 
       <DetailSection title="01 · Record Information">
         <div className="grid grid-cols-4 gap-4">

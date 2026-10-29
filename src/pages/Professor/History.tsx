@@ -1,4 +1,5 @@
 import { useState, useMemo, type ReactNode } from "react"
+import { useNavigate } from "react-router"
 import { useAuth } from "@/app/authContext"
 import { BRAND } from "@/config/navigation"
 import { useResource } from "@/hooks/useResource"
@@ -43,6 +44,9 @@ export type LatestSubmission = {
   status: StatusKind
   currentStage: string
   currentSince: string
+  remark?: string
+  reviewer?: string
+  rawRecord?: HistoryRecord
 }
 
 /* ─── Latest submission routing ────────────────────────────────────────────── */
@@ -290,8 +294,10 @@ function StageNode({ s }: { s: RoutingStage }) {
 
 function LatestSubmissionCard({
   submission,
+  onRevise,
 }: {
   submission: LatestSubmission | null
+  onRevise?: (rec: HistoryRecord) => void
 }) {
   if (!submission || !submission.reference) {
     return (
@@ -386,6 +392,49 @@ function LatestSubmissionCard({
         </span>
       </div>
 
+      {isRejected && (
+        <div
+          className="mt-3.5 p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+          style={{
+            background: "#fff5f5",
+            borderColor: "#fed7d7",
+          }}
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#c0392b]">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-3.5 h-3.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              Rejection Reason &amp; Reviewer Feedback:
+            </div>
+            <p className="text-[13px] font-semibold text-[#9b1c1c] mt-1 leading-snug">
+              {submission.remark || "Returned for faculty correction. Please update the necessary entries and resubmit."}
+            </p>
+            {submission.reviewer && (
+              <p className="text-[11.5px] text-[#8fa394] mt-1">
+                Returned by: <span className="font-semibold text-[#5a6b5e]">{submission.reviewer}</span> ({submission.currentStage})
+              </p>
+            )}
+          </div>
+          {onRevise && submission.rawRecord && (
+            <button
+              type="button"
+              onClick={() => onRevise(submission.rawRecord!)}
+              className="px-4 py-2 rounded-xl text-[12.5px] font-bold text-white shadow-xs transition-transform active:scale-98 flex items-center justify-center gap-2 flex-shrink-0 cursor-pointer"
+              style={{ background: "#c0392b" }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              Edit &amp; Resubmit Changes
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="mt-5 overflow-x-auto">
         <div className="relative min-w-[720px]">
           {/* connector rail: from the centre of each stage to the next */}
@@ -425,7 +474,13 @@ function LatestSubmissionCard({
 }
 
 export default function ProfHistory() {
+  const navigate = useNavigate()
   const { user } = useAuth()
+
+  const handleRevise = (recordToRevise: HistoryRecord) => {
+    setSelected(null)
+    navigate("/prof/submit", { state: { reviseSubmission: recordToRevise } })
+  }
   const emailQuery = user?.email ? `?email=${encodeURIComponent(user.email)}` : ""
   // Sourced directly from /audit, identical to how aris-web in audit logs gets it
   const { data: rawData, loading, reload } = useResource<AuditApiResponse | AuditLog[]>(
@@ -497,24 +552,52 @@ export default function ProfHistory() {
     })
   }, [logs])
 
-  // Scope to the logged in professor if matched, otherwise show all records
+  // Scope to the logged in professor if matched, and deduplicate resubmitted records
   const records: HistoryRecord[] = useMemo(() => {
-    if (!user?.email && !user?.name) return allRecords
-    const userEmail = user?.email?.toLowerCase().trim()
-    const userName = user?.name?.toLowerCase().trim()
+    let source = allRecords
+    if (user?.email || user?.name) {
+      const userEmail = user?.email?.toLowerCase().trim()
+      const userName = user?.name?.toLowerCase().trim()
 
-    const matched = allRecords.filter((r) => {
-      const rec = r.record
-      if (!rec) return false
-      const fName = rec.facultyName?.toLowerCase().trim() || ""
-      const email = ((rec as any).email || "").toLowerCase().trim()
-      return (
-        (userEmail && email && email === userEmail) ||
-        (userName && fName && (fName.includes(userName) || userName.includes(fName)))
-      )
-    })
+      const matched = allRecords.filter((r) => {
+        const rec = r.record
+        if (!rec) return false
+        const fName = rec.facultyName?.toLowerCase().trim() || ""
+        const email = ((rec as any).email || "").toLowerCase().trim()
+        return (
+          (userEmail && email && email === userEmail) ||
+          (userName && fName && (fName.includes(userName) || userName.includes(fName)))
+        )
+      })
+      if (matched.length > 0) source = matched
+    }
 
-    return matched.length > 0 ? matched : allRecords
+    // Deduplicate so resubmissions or multiple database records for the same submission never duplicate
+    const uniqueMap = new Map<string, HistoryRecord>()
+    for (const r of source) {
+      // Group key: prefer exact reference, else id, else type+period+faculty
+      const refKey =
+        r.record?.reference ||
+        r.id ||
+        `${r.type}-${r.period}-${r.record?.facultyNumber || ""}`
+
+      if (!uniqueMap.has(refKey)) {
+        uniqueMap.set(refKey, r)
+      } else {
+        const existing = uniqueMap.get(refKey)!
+        const timeExisting = new Date(existing.record?.reviewedAt || existing.submitted).getTime() || 0
+        const timeCurrent = new Date(r.record?.reviewedAt || r.submitted).getTime() || 0
+        // Prefer newer time or pending/approved over rejected
+        if (
+          timeCurrent > timeExisting ||
+          (r.status === "Pending" && (existing.status === "Rejected" || existing.status === "Disapproved"))
+        ) {
+          uniqueMap.set(refKey, r)
+        }
+      }
+    }
+
+    return Array.from(uniqueMap.values())
   }, [allRecords, user])
 
   const latestSubmission: LatestSubmission | null = useMemo(() => {
@@ -535,6 +618,9 @@ export default function ProfHistory() {
       status: latest.status,
       currentStage: latest.currentStage || latest.stage || "Checker",
       currentSince: latest.submitted,
+      remark: latest.record?.remark,
+      reviewer: latest.record?.reviewer,
+      rawRecord: latest,
     }
   }, [records])
   const [tab, setTab] = useState("All")
@@ -610,7 +696,7 @@ export default function ProfHistory() {
         }
       />
 
-      <LatestSubmissionCard submission={latestSubmission} />
+      <LatestSubmissionCard submission={latestSubmission} onRevise={handleRevise} />
 
       <StatGrid className="mb-4">
         {[
@@ -716,10 +802,28 @@ export default function ProfHistory() {
               <span className="text-[13px]" style={{ color: "#8fa394" }}>
                 {r.submitted}
               </span>
-              <span className="flex justify-end">
+              <span className="flex items-center justify-end gap-2">
                 <Badge tone={statusTone[r.status]} dot>
                   {r.status}
                 </Badge>
+                {(r.status === "Rejected" || r.status === "Disapproved") && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRevise(r)
+                    }}
+                    className="px-2 py-0.5 rounded-md text-[11px] font-bold text-white shadow-2xs hover:opacity-90 flex items-center gap-1 cursor-pointer"
+                    style={{ background: "#c0392b" }}
+                    title="Edit and resubmit changes"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    Edit
+                  </button>
+                )}
               </span>
             </button>
           ))
@@ -737,7 +841,23 @@ export default function ProfHistory() {
         size="lg"
         align="left"
         actions={
-          <GhostButton onClick={() => setSelected(null)}>Close</GhostButton>
+          <div className="flex items-center gap-2">
+            <GhostButton onClick={() => setSelected(null)}>Close</GhostButton>
+            {selected && (selected.row.status === "Rejected" || selected.row.status === "Disapproved") && (
+              <button
+                type="button"
+                onClick={() => handleRevise(selected.row)}
+                className="px-4 py-2 rounded-xl text-[12.5px] font-bold text-white shadow-xs transition-transform active:scale-98 flex items-center gap-1.5 cursor-pointer"
+                style={{ background: "#c0392b" }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                Edit &amp; Resubmit Changes
+              </button>
+            )}
+          </div>
         }
       >
         {selected && (
@@ -749,6 +869,7 @@ export default function ProfHistory() {
             colorIndex={selected.idx}
             loggedAt={selected.row.submitted}
             event={selected.row.event}
+            onRevise={() => handleRevise(selected.row)}
           />
         )}
       </Modal>

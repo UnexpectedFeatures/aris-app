@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useNavigate } from "react-router"
+import { useNavigate, useLocation } from "react-router"
 import { PageTitle } from "@/components/ui"
 import { useAuth } from "@/app/authContext"
 import { loadResource, saveResource } from "@/services/dataSource"
@@ -184,15 +184,101 @@ const inputCls =
   "w-full h-11 px-3.5 rounded-xl border text-[13.5px] font-medium outline-none transition-colors bg-[#fafbfa]"
 const inputStyle = { borderColor: "#e8eeea", color: "#111c14" }
 
+
+export function parseTablesToCourseBlocks(
+  tables?: any[],
+  defaultTopics?: string,
+  defaultTasks?: string
+): CourseBlock[] {
+  if (!tables || !Array.isArray(tables) || tables.length === 0) {
+    return []
+  }
+  return tables.map((tbl, idx) => {
+    const fullTitle = tbl.title || `Course ${idx + 1}`
+    let code = ""
+    let title = fullTitle
+    if (fullTitle.includes("—")) {
+      const parts = fullTitle.split("—")
+      code = parts[0].trim()
+      title = parts.slice(1).join("—").trim()
+    } else if (fullTitle.includes(" - ")) {
+      const parts = fullTitle.split(" - ")
+      code = parts[0].trim()
+      title = parts.slice(1).join(" - ").trim()
+    } else if (tbl.rows?.[0]?.[0]) {
+      code = String(tbl.rows[0][0]).trim()
+    }
+
+    const rows: ClassScheduleRow[] = Array.isArray(tbl.rows)
+      ? tbl.rows.map((row: any, rIdx: number) => ({
+          id: `row_rev_${idx}_${rIdx}_${Math.random().toString(36).substring(2, 6)}`,
+          code: String(row[0] || code || "CC 116"),
+          section: String(row[1] || "BSCS 3-B"),
+          units: row[2] ?? 3,
+          days: String(row[3] || "MON | THU"),
+          time: String(row[4] || "6:30 – 9:00 PM"),
+          campus: String(row[5] || "CONGRESS"),
+        }))
+      : []
+
+    return {
+      id: `course_rev_${idx}_${Date.now()}`,
+      code: code || "CC 116",
+      title: title || fullTitle,
+      units: rows[0]?.units ?? 3,
+      datesHeld: tbl.datesHeld || tbl.meta || "2026-08-21,2026-08-23,2026-08-30",
+      topics: tbl.topics || defaultTopics || "",
+      tasks: tbl.tasks || defaultTasks || "",
+      rows:
+        rows.length > 0
+          ? rows
+          : [
+              {
+                id: `row_rev_${idx}_default`,
+                code: code || "CC 116",
+                section: "BSCS 3-B",
+                units: 3,
+                days: "MON | THU",
+                time: "6:30 – 9:00 PM",
+                campus: "CONGRESS",
+              },
+            ],
+    }
+  })
+}
+
 export default function ProfSubmit() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
 
-  const [recordType, setRecordType] = useState("Accomplishment Report (AR)")
-  const [period, setPeriod] = useState("September Cycle 1")
-  const [facultyName, setFacultyName] = useState(user.name.toUpperCase())
-  const [facultyNumber, setFacultyNumber] = useState("")
-  const [college, setCollege] = useState("COLLEGE OF LIBERAL ARTS AND SCIENCES")
+  const reviseSubmission = (location.state as any)?.reviseSubmission
+  const [isRevision, setIsRevision] = useState<boolean>(Boolean(reviseSubmission))
+  const [revisionRef, setRevisionRef] = useState<string>(
+    reviseSubmission?.record?.reference || reviseSubmission?.id || ""
+  )
+  const [revisionReason, setRevisionReason] = useState<string>(
+    reviseSubmission?.record?.remark || reviseSubmission?.remark || ""
+  )
+  const [revisionReviewer, setRevisionReviewer] = useState<string>(
+    reviseSubmission?.record?.reviewer || reviseSubmission?.stage || "Faculty Checker"
+  )
+
+  const [recordType, setRecordType] = useState(
+    reviseSubmission?.type === "DTR" ? "Daily Time Record (DTR)" : "Accomplishment Report (AR)"
+  )
+  const [period, setPeriod] = useState(
+    reviseSubmission?.period || reviseSubmission?.record?.period || "September Cycle 1"
+  )
+  const [facultyName, setFacultyName] = useState(
+    reviseSubmission?.record?.facultyName || user.name.toUpperCase()
+  )
+  const [facultyNumber, setFacultyNumber] = useState(
+    reviseSubmission?.record?.facultyNumber || ""
+  )
+  const [college, setCollege] = useState(
+    reviseSubmission?.record?.college || "COLLEGE OF LIBERAL ARTS AND SCIENCES"
+  )
 
   // Database courses state
   const [availableCourses, setAvailableCourses] = useState<DbCourse[]>([])
@@ -200,28 +286,89 @@ export default function ProfSubmit() {
   const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false)
 
   // Course blocks in report
-  const [courses, setCourses] = useState<CourseBlock[]>([
-    {
-      id: "course-1",
-      code: "CC 116",
-      title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
-      units: 5,
-      datesHeld: "2026-08-21,2026-08-23,2026-08-30",
-      topics: "DESIGNING LOG IN MODAL",
-      tasks: "",
-      rows: [
-        {
-          id: "row-1",
-          code: "CC 116",
-          section: "BSCS 3-B",
-          units: 5,
-          days: "MON | THU",
-          time: "6:30 – 9:00 PM | 6:30 – 9:00 PM",
-          campus: "CONGRESS",
-        },
-      ],
-    },
-  ])
+  const initialCourses = useMemo(() => {
+    if (reviseSubmission?.record?.tables) {
+      const parsed = parseTablesToCourseBlocks(
+        reviseSubmission.record.tables,
+        reviseSubmission.record.topics,
+        reviseSubmission.record.tasks
+      )
+      if (parsed.length > 0) return parsed
+    }
+    return [
+      {
+        id: "course-1",
+        code: "CC 116",
+        title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
+        units: 5,
+        datesHeld: "2026-08-21,2026-08-23,2026-08-30",
+        topics: "DESIGNING LOG IN MODAL",
+        tasks: "",
+        rows: [
+          {
+            id: "row-1",
+            code: "CC 116",
+            section: "BSCS 3-B",
+            units: 5,
+            days: "MON | THU",
+            time: "6:30 – 9:00 PM | 6:30 – 9:00 PM",
+            campus: "CONGRESS",
+          },
+        ],
+      },
+    ]
+  }, [reviseSubmission])
+
+  const [courses, setCourses] = useState<CourseBlock[]>(initialCourses)
+
+  useEffect(() => {
+    if (reviseSubmission) {
+      setIsRevision(true)
+      setRevisionRef(reviseSubmission.record?.reference || reviseSubmission.id || "")
+      setRevisionReason(
+        reviseSubmission.record?.remark ||
+          reviseSubmission.remark ||
+          "Returned for faculty correction. Please review entries and resubmit."
+      )
+      setRevisionReviewer(
+        reviseSubmission.record?.reviewer || reviseSubmission.stage || "Faculty Checker"
+      )
+      if (reviseSubmission.type === "DTR") {
+        setRecordType("Daily Time Record (DTR)")
+      } else {
+        setRecordType("Accomplishment Report (AR)")
+      }
+      if (reviseSubmission.period || reviseSubmission.record?.period) {
+        setPeriod(reviseSubmission.period || reviseSubmission.record?.period)
+      }
+      if (reviseSubmission.record?.facultyName) {
+        setFacultyName(reviseSubmission.record.facultyName)
+      }
+      if (reviseSubmission.record?.facultyNumber) {
+        setFacultyNumber(reviseSubmission.record.facultyNumber)
+      }
+      if (reviseSubmission.record?.college) {
+        setCollege(reviseSubmission.record.college)
+      }
+      if (reviseSubmission.record?.notes) {
+        setNotes(reviseSubmission.record.notes)
+      }
+      if (
+        reviseSubmission.record?.attachment &&
+        reviseSubmission.record.attachment !== "None"
+      ) {
+        setUploadedFile(reviseSubmission.record.attachment)
+      }
+      const parsed = parseTablesToCourseBlocks(
+        reviseSubmission.record?.tables,
+        reviseSubmission.record?.topics,
+        reviseSubmission.record?.tasks
+      )
+      if (parsed.length > 0) {
+        setCourses(parsed)
+      }
+    }
+  }, [reviseSubmission])
 
   // Class modal state
   const [classModalCourseId, setClassModalCourseId] = useState<string | null>(null)
@@ -730,7 +877,7 @@ export default function ProfSubmit() {
     setSubmitError(null)
 
     const kind = recordType.startsWith("Accomplishment") ? "AR" : "DTR"
-    const reference = `${kind}-${Date.now()}`
+    const reference = isRevision && revisionRef ? revisionRef : `${kind}-${Date.now()}`
     const now = new Date().toLocaleString()
 
     const combinedTopics = courses
@@ -742,8 +889,13 @@ export default function ProfSubmit() {
       .filter(Boolean)
       .join(" · ")
 
+    const existingId = isRevision ? (reviseSubmission?.id || reviseSubmission?.record?.id) : undefined
+
     const record = {
-      id: reference,
+      id: existingId || reference,
+      report_id: existingId,
+      reference,
+      is_revision: isRevision,
       type: kind,
       period,
       units: `${courses.length} course${courses.length === 1 ? "" : "s"}`,
@@ -758,8 +910,12 @@ export default function ProfSubmit() {
       facultyEmail: user?.email,
       facultyName: facultyName || user?.name || "Faculty",
       facultyNumber: facultyNumber || "—",
-      event: `${kind} submitted · ${period}`,
+      event: isRevision
+        ? `${kind} resubmitted with corrections · ${period}`
+        : `${kind} submitted · ${period}`,
       record: {
+        id: existingId,
+        report_id: existingId,
         period,
         reference,
         email: user?.email,
@@ -768,7 +924,9 @@ export default function ProfSubmit() {
         facultyNumber,
         college,
         tables: courses.map((course) => ({
-          title: course.title,
+          title: course.title.toUpperCase().includes(course.code.toUpperCase())
+            ? course.title
+            : `${course.code} — ${course.title}`,
           meta: course.datesHeld,
           datesHeld: course.datesHeld,
           topics: course.topics,
@@ -789,8 +947,52 @@ export default function ProfSubmit() {
         attachment: uploadedFile ?? undefined,
         reviewer: "Faculty Checker",
         reviewedAt: now,
-        remark: "Received and queued for review.",
+        remark: isRevision
+          ? "Resubmitted with corrections. Queued for Faculty Checker review."
+          : "Received and queued for review.",
       },
+    }
+
+    // Synchronize local storage in demo mode so History immediately displays the revised submission
+    try {
+      const auditKeys = [
+        "aris:demo:/audit",
+        `aris:demo:/audit?email=${encodeURIComponent(user?.email || "")}`,
+      ]
+      for (const k of auditKeys) {
+        const stored = localStorage.getItem(k)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          const isArr = Array.isArray(parsed)
+          const logs = isArr ? parsed : parsed?.logs || []
+          const updated = logs.map((log: any) => {
+            const match =
+              (log.id && log.id === record.id) ||
+              (log.record?.reference && log.record.reference === reference)
+            if (match) {
+              return {
+                ...log,
+                result: "Pending",
+                action: "AR resubmitted · Returned for correction addressed",
+                time: now,
+                stage: "Checker",
+                stage_role: "Checker",
+                stage_key: "AR-AP-STG-1",
+                approval_stage: "AR-AP-STG-1",
+                stage_order: 1,
+                record: {
+                  ...log.record,
+                  ...record.record,
+                },
+              }
+            }
+            return log
+          })
+          localStorage.setItem(k, JSON.stringify(isArr ? updated : { ...parsed, logs: updated }))
+        }
+      }
+    } catch (syncErr) {
+      console.warn("Could not sync local audit store:", syncErr)
     }
 
     try {
@@ -811,9 +1013,84 @@ export default function ProfSubmit() {
   return (
     <div className="pb-32 max-w-[1180px] mx-auto">
       <PageTitle
-        title="Submit Record"
-        subtitle="File an Accomplishment Report (AR) or DTR for the current cycle."
+        title={isRevision ? "Revise & Resubmit Record" : "Submit Record"}
+        subtitle={
+          isRevision
+            ? `Make corrections to submission ${revisionRef} and resubmit for re-evaluation.`
+            : "File an Accomplishment Report (AR) or DTR for the current cycle."
+        }
       />
+
+      {isRevision && (
+        <div
+          className="mb-6 rounded-2xl border p-5 shadow-sm"
+          style={{
+            background: "#fffaf5",
+            borderColor: "#fcd34d",
+          }}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "#fef3c7", color: "#b45309", border: "1px solid #fde68a" }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-5 h-5">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h3 className="text-[15px] font-bold text-[#92400e]">
+                    Editing Rejected Submission ({revisionRef})
+                  </h3>
+                  <span
+                    className="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
+                    style={{ background: "#fee2e2", color: "#b91c1c", border: "1px solid #fca5a5" }}
+                  >
+                    Returned for Revision
+                  </span>
+                </div>
+
+                <div
+                  className="mt-3 p-3.5 rounded-xl border bg-white"
+                  style={{ borderColor: "#fde68a" }}
+                >
+                  <p className="text-[11px] uppercase tracking-wider font-bold text-[#b45309] mb-1">
+                    Reviewer Feedback / Reason for Rejection:
+                  </p>
+                  <p className="text-[13px] font-semibold text-[#78350f] leading-relaxed">
+                    {revisionReason || "Please review and correct the required entries before resubmitting."}
+                  </p>
+                  {revisionReviewer && (
+                    <p className="text-[11.5px] text-[#92400e]/80 mt-1.5">
+                      Returned by: <span className="font-semibold text-[#92400e]">{revisionReviewer}</span>
+                    </p>
+                  )}
+                </div>
+
+                <p className="text-[12px] text-[#92400e] mt-2.5 leading-snug">
+                  You can edit teaching loads, class schedules, dates held, topics, tasks, and upload new documents below. Resubmitting will reset the status to <strong>Pending</strong> and return it to the <strong>Faculty Checker</strong> stage for review.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsRevision(false)
+                setRevisionRef("")
+                setRevisionReason("")
+              }}
+              className="px-3.5 py-1.5 rounded-xl border bg-white text-[12px] font-semibold text-[#b45309] hover:bg-[#fffbeb] transition-colors flex-shrink-0 cursor-pointer shadow-2xs"
+              style={{ borderColor: "#fcd34d" }}
+            >
+              Exit Revision Mode
+            </button>
+          </div>
+        </div>
+      )}
 
       {submitError && (
         <div className="mb-5 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[13px] flex items-center justify-between">
@@ -1724,9 +2001,17 @@ export default function ProfSubmit() {
         }}
       >
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full animate-pulse bg-[#009668]" />
-          <span className="text-[12.5px] font-semibold text-[#009668]">
-            Draft automatically synchronized
+          <span
+            className="w-2 h-2 rounded-full animate-pulse"
+            style={{ background: isRevision ? "#c0392b" : "#009668" }}
+          />
+          <span
+            className="text-[12.5px] font-semibold"
+            style={{ color: isRevision ? "#c0392b" : "#009668" }}
+          >
+            {isRevision
+              ? `Revision Mode: ${revisionRef}`
+              : "Draft automatically synchronized"}
           </span>
         </div>
 
@@ -1744,10 +2029,12 @@ export default function ProfSubmit() {
             type="submit"
             form="submit-form"
             disabled={isSubmitting || courses.length === 0}
-            className="px-6 py-2.5 rounded-xl text-[13px] font-bold text-white transition-all flex items-center gap-2 active:scale-[0.98] disabled:opacity-70 shadow-md"
+            className="px-6 py-2.5 rounded-xl text-[13px] font-bold text-white transition-all flex items-center gap-2 active:scale-[0.98] disabled:opacity-70 shadow-md cursor-pointer"
             style={{
               background: isSubmitting
                 ? "#5abf97"
+                : isRevision
+                ? "linear-gradient(135deg,#c0392b 0%,#e74c3c 100%)"
                 : "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
             }}
           >
@@ -1758,6 +2045,14 @@ export default function ProfSubmit() {
                   <path d="M12 2a10 10 0 0110 10" />
                 </svg>
                 Submitting…
+              </>
+            ) : isRevision ? (
+              <>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                Resubmit with Changes
               </>
             ) : (
               <>
