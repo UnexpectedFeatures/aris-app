@@ -738,12 +738,19 @@ export default function ProfHistory() {
           </div>
         ) : (
           rows.map((r, i) => (
-            <button
+            <div
               key={r.id || i}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => setSelected({ row: r, idx: i })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelected({ row: r, idx: i });
+                }
+              }}
               title="View submission detail"
-              className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer"
+              className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer select-none"
               style={{ borderColor: "#f2f4f2" }}
             >
               <span
@@ -825,7 +832,7 @@ export default function ProfHistory() {
                   </button>
                 )}
               </span>
-            </button>
+            </div>
           ))
         )}
       </Card>

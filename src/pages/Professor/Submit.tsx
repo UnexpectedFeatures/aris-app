@@ -351,7 +351,12 @@ export default function ProfSubmit() {
         setCollege(reviseSubmission.record.college)
       }
       if (reviseSubmission.record?.notes) {
-        setNotes(reviseSubmission.record.notes)
+        const rawNotes = reviseSubmission.record.notes
+        if (!/disapprov|reject|returned/i.test(rawNotes)) {
+          setNotes(rawNotes)
+        } else {
+          setNotes("")
+        }
       }
       if (
         reviseSubmission.record?.attachment &&
@@ -943,7 +948,11 @@ export default function ProfSubmit() {
         })),
         topics: combinedTopics || "Course syllabus alignment and lecture execution",
         tasks: combinedTasks || "Lecture and Discussion, Activity",
-        notes,
+        notes: notes && !/disapprov|reject|returned/i.test(notes)
+          ? notes
+          : isRevision
+          ? "Resubmitted with corrections."
+          : notes,
         attachment: uploadedFile ?? undefined,
         reviewer: "Faculty Checker",
         reviewedAt: now,
