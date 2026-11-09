@@ -1,3 +1,4 @@
+mod biometrics;
 use tauri::{Emitter, Manager};
 use tauri::webview::{PermissionKind, PermissionResponse};
 
@@ -690,6 +691,7 @@ async fn close_in_app_meet(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .manage(biometrics::AuthenticatorState::default())
     .on_permission_request(|_webview, kind| {
       println!("[ARIS RUST] 🎙️ Webview permission requested: {:?}", kind);
       match kind {
@@ -720,8 +722,24 @@ pub fn run() {
       get_in_app_meet_transcript,
       clear_in_app_meet_transcript,
       open_oauth_window,
-      close_oauth_window
+      close_oauth_window,
+      // ARIS authenticator (ESP32 USB bridge)
+      biometrics::commands::get_serial_ports,
+      biometrics::commands::connect_authenticator,
+      biometrics::commands::disconnect_authenticator,
+      biometrics::commands::get_authenticator_connection_status,
+      biometrics::commands::authenticator_send_command,
+      biometrics::commands::authenticator_enroll,
+      biometrics::commands::save_enrollment_token,
+      biometrics::commands::clear_enrollment_token,
+      biometrics::commands::get_enrollment_token_status
     ])
-    .run(tauri::generate_context!())
-    .expect("error while building tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app, event| {
+      // Release the COM port on exit.
+      if let tauri::RunEvent::Exit = event {
+        biometrics::serial::shutdown(app);
+      }
+    });
 }

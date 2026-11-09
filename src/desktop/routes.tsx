@@ -13,6 +13,7 @@ import SystemSettings from "@/pages/Admin/SystemSettings";
 import StaffOverview from "@/pages/Staff/Overview";
 import StaffApprovals from "@/pages/Staff/Approvals";
 import StaffAnnouncements from "@/pages/Professor/Announcements";
+import AuthenticatorPage from "@/pages/Biometrics/AuthenticatorPage";
 
 function StaffRootWithAuth() {
   const { signOut, user } = useAuth();
@@ -79,6 +80,7 @@ export const desktopRouter = createHashRouter([
       { path: "notifications", Component: ProfAnnouncements },
       { path: "submit", Component: ProfSubmit },
       { path: "history", Component: ProfHistory },
+      { path: "biometrics", Component: AuthenticatorPage },
       { path: "meet", Component: ProfMeet },
       { path: "summaries", Component: ProfSummaries },
       { path: "tickets", Component: Tickets },

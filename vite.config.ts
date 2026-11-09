@@ -19,5 +19,9 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: mode === "desktop" ? 1420 : 5173,
     strictPort: true,
+    watch: {
+      // Stops Vite from watching Rust build output (the EBUSY crash)
+      ignored: ["**/src-tauri/**"],
+    },
   },
 }));
