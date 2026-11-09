@@ -106,7 +106,7 @@ pub struct Conn {
     pending: Mutex<HashMap<String, Pending>>,
     stop: AtomicBool,
     info: Mutex<Option<DeviceInfo>>,
-    /// True while an enrollment owns the sensor; blocks sensor-touching commands on the Rust side too.
+    /// True while an enrollment or a match owns the sensor; blocks sensor-touching commands on the Rust side too.
     op_active: AtomicBool,
     reader: Mutex<Option<JoinHandle<()>>>,
 }
@@ -521,6 +521,8 @@ fn token_for(conn: &Conn, command: &str) -> Result<Option<String>, BridgeError> 
 }
 
 /// Generic allow-listed command. `enroll` has its own entry point (long-running, lifecycle events).
+/// `match` (fingerprint verification) waits for the finger, so it marks the connection busy and its idle
+/// timeout follows the requested `timeoutMs`.
 pub fn command(app: &AppHandle, command: &str, params: Option<Value>) -> Result<Value, BridgeError> {
     if !is_allowed(command) || command == "enroll" {
         return Err(BridgeError::new("forbidden_command", "This command cannot be sent from the frontend", false));
@@ -530,7 +532,7 @@ pub fn command(app: &AppHandle, command: &str, params: Option<Value>) -> Result<
     if conn.op_active.load(Ordering::SeqCst) && !sensor_free_ok {
         return Err(BridgeError::new(
             "operation_in_progress",
-            "An enrollment is running; wait for it to finish or cancel it",
+            "An enrollment or verification is running; wait for it to finish or cancel it",
             true,
         ));
     }
@@ -540,9 +542,29 @@ pub fn command(app: &AppHandle, command: &str, params: Option<Value>) -> Result<
             return Err(BridgeError::new("invalid_slot", "'slot' (non-negative integer) is required", false));
         }
     }
+    let _op = if command == "match" {
+        if conn
+            .op_active
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(BridgeError::new("operation_in_progress", "Another operation is already running", true));
+        }
+        Some(OpGuard(&conn.op_active))
+    } else {
+        None
+    };
     let token = token_for(&conn, command)?;
     let idle = match command {
         "get_template_info" | "health_check" | "delete_template" | "clear_templates" => Duration::from_secs(12),
+        "match" => {
+            let t = params
+                .as_ref()
+                .and_then(|p| p.get("timeoutMs"))
+                .and_then(Value::as_u64)
+                .unwrap_or(10_000);
+            Duration::from_millis(t.clamp(1_000, 60_000) + 5_000)
+        }
         _ => Duration::from_secs(5),
     };
     let msg = conn.request(command, params.as_ref(), token.as_deref(), idle)?;

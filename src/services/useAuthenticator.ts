@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { authenticatorApi as api, EVT, on } from "./rustMiddleware";
+import { enrollFingerprint } from "./biometricsService";
 import {
   toBridgeError,
   type BridgeError,
   type ConnectionStatus,
   type DeviceEvent,
+  type EnrollResult,
   type EnrollState,
   type PortInfo,
   type TemplateInfo,
@@ -19,6 +21,19 @@ const DISCONNECTED: ConnectionStatus = {
 };
 const IDLE: EnrollState = { phase: "idle" };
 
+export interface SyncState {
+  status: "idle" | "saving" | "saved" | "failed";
+  error: string | null;
+}
+const SYNC_IDLE: SyncState = { status: "idle", error: null };
+
+function serverMessage(e: unknown): string {
+  const m = (e as { response?: { data?: { message?: string | string[] } } })
+    ?.response?.data?.message;
+  if (m) return Array.isArray(m) ? m.join(", ") : m;
+  return e instanceof Error ? e.message : "Could not save to ARIS.";
+}
+
 export function useAuthenticator() {
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>(DISCONNECTED);
@@ -27,6 +42,7 @@ export function useAuthenticator() {
   const [infoError, setInfoError] = useState<BridgeError | null>(null);
   const [tokenConfigured, setTokenConfigured] = useState(false);
   const [enroll, setEnroll] = useState<EnrollState>(IDLE);
+  const [sync, setSync] = useState<SyncState>(SYNC_IDLE);
   const [error, setError] = useState<BridgeError | null>(null);
   const enrollingRef = useRef(false);
 
@@ -134,9 +150,24 @@ export function useAuthenticator() {
     }
   }, []);
 
+  // Saves the enrolled fingerprint to ARIS for the signed-in account.
+  const saveEnrollment = useCallback(async (result: EnrollResult) => {
+    setSync({ status: "saving", error: null });
+    try {
+      await enrollFingerprint({
+        authenticator_tag: result.deviceId,
+        biometrics_fingerprint: String(result.fingerprintId),
+      });
+      setSync({ status: "saved", error: null });
+    } catch (e) {
+      setSync({ status: "failed", error: serverMessage(e) });
+    }
+  }, []);
+
   const startEnrollment = useCallback(
     async (slot: number, timeoutMs: number) => {
       setError(null);
+      setSync(SYNC_IDLE);
       setEnroll({ phase: "starting" });
       // Pre-flight with FRESH device data; the firmware stays the final authority.
       const t = await refreshInfo();
@@ -183,6 +214,7 @@ export function useAuthenticator() {
       try {
         const result = await api.enroll(slot, timeoutMs);
         setEnroll({ phase: "done", result });
+        void saveEnrollment(result);
       } catch (e) {
         const err = toBridgeError(e);
         setEnroll(
@@ -195,8 +227,14 @@ export function useAuthenticator() {
         void refreshInfo();
       }
     },
-    [refreshInfo, status, tokenConfigured],
+    [refreshInfo, saveEnrollment, status, tokenConfigured],
   );
+
+  const retrySave = useCallback(() => {
+    if (enroll.phase === "done" && enroll.result) {
+      void saveEnrollment(enroll.result);
+    }
+  }, [enroll, saveEnrollment]);
 
   const cancelEnrollment = useCallback(async () => {
     try {
@@ -214,15 +252,20 @@ export function useAuthenticator() {
     infoError,
     tokenConfigured,
     enroll,
+    sync,
     error,
     clearError: () => setError(null),
-    resetEnroll: () => setEnroll(IDLE),
+    resetEnroll: () => {
+      setEnroll(IDLE);
+      setSync(SYNC_IDLE);
+    },
     refreshPorts,
     refreshInfo,
     refreshToken,
     connect,
     disconnect,
     startEnrollment,
+    retrySave,
     cancelEnrollment,
     setError,
   };

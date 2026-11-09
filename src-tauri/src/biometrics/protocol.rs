@@ -11,8 +11,9 @@ pub const BAUD_RATE: u32 = 115_200; // host <-> ESP32. (57600 is the sensor UART
 const MAX_FRAME: usize = 16 * 1024; // incoming line without '\n' beyond this is dropped
 const MAX_REQUEST_BYTES: usize = 500; // firmware rejects lines > 512 bytes
 
-/// Only these commands can be sent by the frontend. wifi_*, prov_*, server_set, listen_set and match
-/// are deliberately excluded (secrets / persistent device config).
+/// Only these commands can be sent by the frontend. wifi_*, prov_*, server_set and listen_set are
+/// deliberately excluded (secrets / persistent device config). `match` is allowed: it only verifies a finger
+/// and needs no token; the app sends the punch to the server itself.
 pub const ALLOWED_COMMANDS: &[&str] = &[
     "hello",
     "ping",
@@ -20,6 +21,7 @@ pub const ALLOWED_COMMANDS: &[&str] = &[
     "finger_detected",
     "get_template_info",
     "health_check",
+    "match",
     "enroll",
     "cancel",
     "delete_template",
@@ -259,5 +261,11 @@ mod tests {
         assert_eq!(v["requestId"], "id1");
         assert!(v.get("overwrite").is_none());
         assert_eq!(v["slot"], 1);
+    }
+
+    #[test]
+    fn match_is_allowed_without_token() {
+        assert!(is_allowed("match"));
+        assert!(!needs_token("match"));
     }
 }
