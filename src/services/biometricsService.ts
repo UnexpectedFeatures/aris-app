@@ -1,8 +1,8 @@
 import { apiClient } from "@/services/apiClient";
 
 interface EnrollPayload {
-  authenticator_tag: string;
-  biometrics_fingerprint: string;
+  authenticator_tag: string; // device deviceId, e.g. auth-00001
+  biometrics_fingerprint: string; // fingerprintId/slot from the enroll response
 }
 
 interface PunchPayload {
@@ -24,7 +24,8 @@ function assertOk(body: ApiEnvelope) {
   }
 }
 
-async function getUserId(): Promise<string> {
+// Same endpoint UserSettings uses. Handles both a bare profile and a { data } envelope.
+export async function getUserId(): Promise<string> {
   const response = await apiClient.get("/users/me/profile");
   assertOk(response.data);
   const profile = (response.data?.data ?? response.data) as { id?: string };
@@ -32,6 +33,7 @@ async function getUserId(): Promise<string> {
   return profile.id;
 }
 
+// Enrolls the fingerprint slot and registers the authenticator
 export async function enrollFingerprint(data: EnrollPayload) {
   const user_id = await getUserId();
   const response = await apiClient.post("/biometrics/enroll", {
@@ -42,6 +44,7 @@ export async function enrollFingerprint(data: EnrollPayload) {
   return response.data;
 }
 
+// Server decides time in / time out
 export async function punch(data: PunchPayload) {
   const user_id = await getUserId();
   const response = await apiClient.post("/biometrics/punch", {
@@ -52,12 +55,16 @@ export async function punch(data: PunchPayload) {
   return response.data;
 }
 
+// Admin only. The server returns 403 for non-admins.
+// Also send `clear_templates` to the device, or it can't enroll again.
 export async function clearAuthenticator(data: ClearPayload) {
   const response = await apiClient.post("/biometrics/clear", data);
   assertOk(response.data);
   return response.data;
 }
 
+// Admin gets all records, everyone else gets their own.
+// Rows carry missed_time_in / missed_time_out flags.
 export async function fetchDtrRecords() {
   const response = await apiClient.get("/biometrics/dtr");
   assertOk(response.data);

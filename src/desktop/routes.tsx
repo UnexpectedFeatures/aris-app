@@ -14,6 +14,7 @@ import StaffOverview from "@/pages/Staff/Overview";
 import StaffApprovals from "@/pages/Staff/Approvals";
 import StaffAnnouncements from "@/pages/Professor/Announcements";
 import AuthenticatorPage from "@/pages/Biometrics/AuthenticatorPage";
+import DtrPage from "@/pages/Biometrics/DtrPage";
 
 function StaffRootWithAuth() {
   const { signOut, user } = useAuth();
@@ -32,7 +33,12 @@ function AdministratorRootWithAuth() {
 
 function DesktopHome() {
   const { user } = useAuth();
-  const home = user.role === "administrator" ? "/admin" : user.role === "staff" ? "/staff" : "/prof";
+  const home =
+    user.role === "administrator"
+      ? "/admin"
+      : user.role === "staff"
+        ? "/staff"
+        : "/prof";
   return <Navigate to={home} replace />;
 }
 
@@ -50,7 +56,10 @@ export const desktopRouter = createHashRouter([
     path: "/admin",
     Component: AdministratorRootWithAuth,
     children: [
-      { index: true, element: <Navigate to="/admin/settings/system" replace /> },
+      {
+        index: true,
+        element: <Navigate to="/admin/settings/system" replace />,
+      },
       { path: "settings/system", Component: SystemSettings },
       { path: "settings/user", Component: UserSettings },
       { path: "*", element: <Navigate to="/admin/settings/system" replace /> },
@@ -81,14 +90,21 @@ export const desktopRouter = createHashRouter([
       { path: "submit", Component: ProfSubmit },
       { path: "history", Component: ProfHistory },
       { path: "biometrics", Component: AuthenticatorPage },
+      { path: "dtr", Component: DtrPage },
       { path: "meet", Component: ProfMeet },
       { path: "summaries", Component: ProfSummaries },
       { path: "tickets", Component: Tickets },
       { path: "support", element: <Navigate to="/prof/tickets" replace /> },
       { path: "chat", element: <Navigate to="/prof/tickets" replace /> },
-      { path: "settings/system", element: <Navigate to="/prof/settings/preferences" replace /> },
+      {
+        path: "settings/system",
+        element: <Navigate to="/prof/settings/preferences" replace />,
+      },
       { path: "settings/preferences", Component: UserSettings },
-      { path: "settings/user", element: <Navigate to="/prof/settings/preferences" replace /> },
+      {
+        path: "settings/user",
+        element: <Navigate to="/prof/settings/preferences" replace />,
+      },
       { path: "*", Component: ProfOverview },
     ],
   },
