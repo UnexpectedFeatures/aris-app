@@ -30,10 +30,7 @@ import {
   PrimaryButton,
   GhostButton,
   Badge,
-  Tabs,
   Modal,
-  StatCard,
-  StatGrid,
 } from "@/components/ui";
 import { saveMeetingToDb, fetchMeetingsFromDb } from "@/services/meetingService";
 import {
@@ -210,13 +207,12 @@ export default function ProfMeet() {
     }
   };
 
-  // Tab: "Upcoming & Today" vs "Past & Summarized"
-  const [currentTab, setCurrentTab] = useState("Upcoming & Today");
-
   // Join by code state
   const [joinInput, setJoinInput] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
 
   // Courses for Teaching Load allocation
   const [availableCourses, setAvailableCourses] = useState<MinimalCourseInfo[]>([]);
@@ -900,11 +896,20 @@ export default function ProfMeet() {
   };
 
   /* Filtered Meetings */
-  const visibleMeetings = meetings.filter((m) =>
-    currentTab === "Upcoming & Today"
-      ? m.status === "Upcoming" || m.status === "In Progress"
-      : m.status === "Completed"
+  const upcomingMeetings = meetings.filter(
+    (m) => m.status === "Upcoming" || m.status === "In Progress"
   );
+  const completedMeetings = meetings.filter((m) => m.status === "Completed");
+  const filteredHistory = completedMeetings.filter((meeting) => {
+    const query = historySearch.trim().toLowerCase();
+    if (!query) return true;
+    return [meeting.title, meeting.course, meeting.date, meeting.code]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+  const historyPageCount = Math.max(1, Math.ceil(filteredHistory.length / 5));
+  const paginatedHistory = filteredHistory.slice((historyPage - 1) * 5, historyPage * 5);
 
   return (
     <div className="pb-6">
@@ -920,22 +925,10 @@ export default function ProfMeet() {
       <PageTitle
         title="Google Meet"
         subtitle="Host consultations, lectures, and departmental meetings directly on ARIS."
-        action={
-          <div className="flex items-center gap-2">
-            <GhostButton onClick={() => setIsScheduleOpen(true)}>
-              <Calendar className="w-4 h-4 text-[#3a7d4e]" />
-              Schedule Meeting
-            </GhostButton>
-            <PrimaryButton onClick={handleStartInstant}>
-              <Video className="w-4 h-4 text-white" />
-              Start Instant Meeting
-            </PrimaryButton>
-          </div>
-        }
       />
 
       {/* Captured Google OAuth Account Banner */}
-      <div className="mb-5 rounded-2xl bg-white p-4 border border-[#dce3df] shadow-sm">
+      <div className="hidden">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f0f7f2] border border-[#d2e7d8] flex-shrink-0">
@@ -1108,36 +1101,9 @@ export default function ProfMeet() {
         </div>
       )}
 
-      {/* Quick Stats Grid */}
-      <StatGrid columns={4} className="mb-4">
-        <StatCard
-          label="Upcoming Meetings"
-          value={meetings.filter((m) => m.status === "Upcoming").length}
-          badge={<Badge tone="green">Scheduled</Badge>}
-          detail="Classes & consultations"
-        />
-        <StatCard
-          label="OAuth Account"
-          value={oauthEmail.split("@")[0]}
-          badge={<Badge tone="green">Captured</Badge>}
-          detail={oauthEmail}
-        />
-        <StatCard
-          label="Meeting Engine"
-          value="In-App"
-          valueColor={BRAND}
-          badge={<Badge tone="green">No Browser</Badge>}
-          detail="Runs directly on ARIS"
-        />
-        <StatCard
-          label="AV Device Status"
-          value={isAvTesting ? (cameraOn && micOn ? "Online" : "Partial") : "Standby"}
-          badge={<Badge tone={isAvTesting ? "green" : "gray"}>{isAvTesting ? "Active" : "Check below"}</Badge>}
-          detail="Camera & mic ready"
-        />
-      </StatGrid>
-
       {/* 3-Way Action Columns */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="min-w-0">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3 mb-5">
         {/* Card 1: Start Instant Meeting */}
         <Card className="flex flex-col justify-between">
@@ -1189,7 +1155,7 @@ export default function ProfMeet() {
           <div className="mt-4 pt-3 border-t border-[#f0f2f0] flex flex-col gap-2">
             <PrimaryButton onClick={handleStartInstant}>
               <Video className="h-4 w-4" />
-              Launch as {oauthEmail.split("@")[0]}
+              Launch Meet
             </PrimaryButton>
             <button
               type="button"
@@ -1204,13 +1170,6 @@ export default function ProfMeet() {
             >
               <LinkIcon className="h-3.5 w-3.5" />
               Generate & Copy Link for Later
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/prof/submit")}
-              className="flex items-center justify-center gap-1 text-[11.5px] font-semibold text-[#009668] hover:underline transition"
-            >
-              Go to Submit Page (Teaching Load) →
             </button>
           </div>
         </Card>
@@ -1237,7 +1196,7 @@ export default function ProfMeet() {
           </div>
 
           <div className="mt-4 pt-3 border-t border-[#f0f2f0] space-y-2">
-            <div className="flex items-center rounded-xl border border-[#e2e8e4] bg-white px-2.5 py-1">
+            <div className="flex min-h-11 items-center rounded-xl border border-[#e2e8e4] bg-white px-3 py-2">
               <input
                 type="text"
                 value={joinInput}
@@ -1265,10 +1224,15 @@ export default function ProfMeet() {
                 Paste
               </button>
             </div>
-            <GhostButton onClick={() => void handleJoinWithCode()}>
+            <button
+              type="button"
+              onClick={() => void handleJoinWithCode()}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-medium transition-colors hover:bg-[#f7f9f8]"
+              style={{ borderColor: "#e2e8e4", color: "#3d4a41" }}
+            >
               <PhoneCall className="h-4 w-4 text-[#3a7d4e]" />
               Join on ARIS
-            </GhostButton>
+            </button>
           </div>
         </Card>
 
@@ -1292,10 +1256,10 @@ export default function ProfMeet() {
             </p>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-[#f0f2f0]">
+          <div className="mt-4 flex justify-center border-t border-[#f0f2f0] pt-3">
             <PrimaryButton onClick={() => setIsScheduleOpen(true)}>
               <Plus className="h-4 w-4" />
-              Schedule New Class Session
+              Schedule Class Session
             </PrimaryButton>
           </div>
         </Card>
@@ -1320,7 +1284,7 @@ export default function ProfMeet() {
 
           <div className="flex items-center gap-2">
             {!isAvTesting ? (
-              <GhostButton onClick={startAvTest}>
+              <GhostButton onClick={startAvTest} className="min-w-[220px] justify-center whitespace-nowrap">
                 <Video className="w-4 h-4 text-[#3a7d4e]" />
                 Test Camera & Microphone
               </GhostButton>
@@ -1483,19 +1447,92 @@ export default function ProfMeet() {
           </div>
         )}
       </Card>
+        </div>
+
+        <aside className="min-w-0">
+          <Card className="h-full">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-[16px] font-semibold" style={{ color: "#111c14" }}>
+                  Upcoming Meetings
+                </h2>
+                <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>
+                  Your next scheduled sessions.
+                </p>
+              </div>
+              <Calendar className="h-5 w-5 flex-shrink-0 text-[#3a7d4e]" />
+            </div>
+
+            {upcomingMeetings.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#dce3df] p-4 text-center">
+                <p className="text-[12.5px] font-semibold" style={{ color: "#111c14" }}>
+                  No upcoming meetings
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsScheduleOpen(true)}
+                  className="mt-3 text-[12px] font-semibold text-[#3a7d4e] hover:underline"
+                >
+                  Schedule a session →
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {upcomingMeetings.map((session) => (
+                  <div
+                    key={session.id}
+                    className="rounded-2xl border border-[#dce3df] bg-[#f7f9f8] p-3.5"
+                  >
+                    <div className="mb-1.5 flex items-start justify-between gap-2">
+                      <p className="min-w-0 text-[13px] font-semibold text-[#111c14]">
+                        {session.title}
+                      </p>
+                      <Badge tone={session.status === "In Progress" ? "amber" : "green"} dot>
+                        {session.status}
+                      </Badge>
+                    </div>
+                    <p className="truncate text-[11.5px] text-[#5a6b5e]">{session.course}</p>
+                    <div className="mt-2 space-y-1 text-[11.5px] text-[#8fa394]">
+                      <p className="flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5" />
+                        {session.date}
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5" />
+                        {session.time}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </aside>
+      </div>
 
       {/* Meetings Schedule Section */}
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-[16px] font-semibold" style={{ color: "#111c14" }}>
-            Scheduled & Past Meetings
+            Meeting History
           </h2>
           <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
-            Direct access to class meetings and their auto-generated transcripts.
+            Completed meetings and their auto-generated transcripts.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <input
+            type="search"
+            value={historySearch}
+            onChange={(e) => {
+              setHistorySearch(e.target.value);
+              setHistoryPage(1);
+            }}
+            placeholder="Search meetings"
+            aria-label="Search meeting history"
+            className="h-9 w-full rounded-xl border border-[#e2e8e4] bg-white px-3 text-[12px] text-[#111c14] outline-none placeholder:text-[#8fa394] focus:border-[#3a7d4e] sm:w-52"
+          />
           <button
             type="button"
             onClick={() => void loadDbMeetings()}
@@ -1506,11 +1543,6 @@ export default function ProfMeet() {
             <RefreshCw className={`h-3.5 w-3.5 text-[#3a7d4e] ${isLoadingMeetings ? "animate-spin" : ""}`} />
             <span>Sync DB</span>
           </button>
-          <Tabs
-            tabs={["Upcoming & Today", "Past & Summarized"]}
-            value={currentTab}
-            onChange={setCurrentTab}
-          />
         </div>
       </div>
 
@@ -1524,139 +1556,76 @@ export default function ProfMeet() {
             Connecting to PostgreSQL to fetch your verified Google Meet records.
           </p>
         </Card>
-      ) : visibleMeetings.length === 0 ? (
+      ) : completedMeetings.length === 0 ? (
         <Card className="text-center py-10">
           <Calendar className="h-10 w-10 mx-auto text-[#8fa394] mb-2 opacity-60" />
           <p className="text-[14px] font-semibold" style={{ color: "#111c14" }}>
-            No {currentTab.toLowerCase()} found
+            No completed meetings found
           </p>
           <p className="text-[12px] mt-1" style={{ color: "#8fa394" }}>
-            {currentTab === "Upcoming & Today"
-              ? "Schedule a new class session or start an instant meeting to get started."
-              : "Completed meetings and their summaries will appear here."}
+            Completed meetings and their summaries will appear here.
           </p>
-          {currentTab === "Upcoming & Today" && (
-            <div className="mt-4 flex justify-center">
-              <PrimaryButton onClick={() => setIsScheduleOpen(true)}>
-                <Plus className="h-4 w-4" />
-                Schedule Session
-              </PrimaryButton>
-            </div>
-          )}
         </Card>
       ) : (
-        <div className="space-y-3">
-          {visibleMeetings.map((session) => (
-            <Card key={session.id} className="transition hover:shadow-md">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div className="flex items-start gap-3.5 min-w-0">
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-2xl flex-shrink-0"
-                    style={{
-                      background:
-                        session.status === "Completed" ? "#f0f2f0" : "#f0f7f2",
-                    }}
-                  >
-                    <Video
-                      className="h-5 w-5"
-                      style={{
-                        color: session.status === "Completed" ? "#5a6b5e" : BRAND,
-                      }}
-                    />
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="font-semibold text-[14px]" style={{ color: "#111c14" }}>
-                        {session.title}
-                      </span>
-                      <Badge
-                        tone={
-                          session.status === "Upcoming"
-                            ? "green"
-                            : session.status === "In Progress"
-                            ? "amber"
-                            : "gray"
-                        }
-                        dot={session.status === "Upcoming"}
-                      >
-                        {session.status}
-                      </Badge>
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                        style={{ background: "#eef1ef", color: "#5a6b5e" }}
-                      >
-                        {session.course}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]" style={{ color: "#8fa394" }}>
-                      <span className="flex items-center gap-1.5">
-                        <Calendar className="h-3.5 w-3.5" />
-                        {session.date}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5" />
+        <>
+        <div className="overflow-x-auto rounded-2xl border border-[#dce3df] bg-white shadow-sm">
+          <table className="w-full min-w-[760px] text-left">
+            <thead className="bg-[#f7f9f8] text-[11px] uppercase tracking-wider text-[#5a6b5e]">
+              <tr>
+                <th className="px-4 py-3 font-bold">Meeting</th>
+                <th className="px-4 py-3 font-bold">Course</th>
+                <th className="px-4 py-3 font-bold">Date &amp; Time</th>
+                <th className="px-4 py-3 font-bold">Code</th>
+                <th className="px-4 py-3 text-right font-bold"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#eef1ef]">
+              {paginatedHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-10 text-center text-[13px] text-[#8fa394]">
+                    No meetings match your search.
+                  </td>
+                </tr>
+              ) : (
+                paginatedHistory.map((session) => (
+                  <tr key={session.id} className="text-[12.5px] text-[#111c14] transition hover:bg-[#fbfcfb]">
+                    <td className="px-4 py-3 font-semibold">{session.title}</td>
+                    <td className="px-4 py-3 text-[#5a6b5e]">{session.course}</td>
+                    <td className="px-4 py-3 text-[#5a6b5e]">
+                      <div>{session.date}</div>
+                      <div className="mt-0.5 text-[11.5px] text-[#8fa394]">
                         {session.time} {session.duration ? `(${session.duration})` : ""}
-                      </span>
-                      {session.participantsCount !== undefined && (
-                        <span className="flex items-center gap-1.5">
-                          <Users className="h-3.5 w-3.5" />
-                          {session.participantsCount} participants
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1 font-mono text-[#5a6b5e]">
-                        <LinkIcon className="h-3 w-3" />
-                        {session.code}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card Actions */}
-                <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      copyToClipboard(
-                        `Join Prof. ${oauthName}'s Google Meet for ${session.course}: ${buildMeetUrl(
-                          session.code,
-                          oauthEmail
-                        )}`,
-                        "Meeting invite link"
-                      )
-                    }
-                    className="flex items-center gap-1 rounded-xl border border-[#e2e8e4] bg-white px-3 py-1.5 text-[12px] font-medium text-[#3d4a41] transition hover:bg-[#f7f9f8]"
-                    title="Copy invite text for students"
-                  >
-                    {copiedCode === session.code || copiedCode === session.url ? (
-                      <Check className="h-3.5 w-3.5 text-[#3a7d4e]" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                    Copy Invite
-                  </button>
-
-                  {session.status !== "Completed" ? (
-                    <PrimaryButton onClick={() => void handleJoinSession(session)}>
-                      <PhoneCall className="h-3.5 w-3.5" />
-                      Join on ARIS
-                    </PrimaryButton>
-                  ) : (
-                    <PrimaryButton
-                      onClick={() => {
-                        navigate("/prof/summaries");
-                      }}
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      View Summary
-                    </PrimaryButton>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-[11.5px] text-[#5a6b5e]">{session.code}</td>
+                    <td className="px-4 py-3 text-right">
+                      <PrimaryButton onClick={() => navigate("/prof/summaries")}>
+                        <Sparkles className="h-3.5 w-3.5" />
+                        View Summary
+                      </PrimaryButton>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
+        <div className="mt-3 flex items-center justify-between text-[12px] text-[#8fa394]">
+          <span>
+            Showing {filteredHistory.length === 0 ? 0 : (historyPage - 1) * 5 + 1}-
+            {Math.min(historyPage * 5, filteredHistory.length)} of {filteredHistory.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setHistoryPage((page) => Math.max(1, page - 1))} disabled={historyPage === 1} className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40">
+              Previous
+            </button>
+            <span className="font-medium text-[#5a6b5e]">Page {historyPage} of {historyPageCount}</span>
+            <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount, page + 1))} disabled={historyPage >= historyPageCount} className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40">
+              Next
+            </button>
+          </div>
+        </div>
+        </>
       )}
 
       {/* Integration Notice to Summaries */}
