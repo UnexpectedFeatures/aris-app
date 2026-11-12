@@ -550,13 +550,6 @@ export default function UserSettings() {
                   Manage authentication credentials and password requirements.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(true)}
-                className="text-[12.5px] font-medium text-[#2d4a36] hover:underline"
-              >
-                Change password
-              </button>
             </div>
             <div
               className="flex items-center justify-between py-2 border-t"

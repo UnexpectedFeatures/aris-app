@@ -203,14 +203,16 @@ export function PrimaryButton({
 export function GhostButton({
   children,
   onClick,
+  className = "",
 }: {
   children: ReactNode;
   onClick?: () => void;
+  className?: string;
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 h-9 px-3.5 rounded-xl text-[13px] font-medium bg-white border transition-colors hover:bg-[#f7f9f8]"
+      className={`flex items-center gap-2 h-9 px-3.5 rounded-xl text-[13px] font-medium bg-white border transition-colors hover:bg-[#f7f9f8] ${className}`}
       style={{ borderColor: "#e2e8e4", color: "#3d4a41" }}
     >
       {children}

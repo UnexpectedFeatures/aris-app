@@ -37,6 +37,10 @@ const FIELD = "h-11 w-full min-w-0 rounded-xl border px-3 text-[13px] outline-no
 const FIELD_VIEW = `${FIELD} border-[#e2e8e4] bg-[#fbfcfb] text-[#334237]`;
 const FIELD_EDIT = `${FIELD} border-[#d6ded8] bg-white text-[#17251c] focus:border-[#2d4a36] shadow-sm`;
 const LABEL = "mb-1 block pl-0.5 text-[12px] font-medium text-[#536258]";
+const NAME_ALLOWED_CHARACTERS = /[^a-zA-ZÀ-ÖØ-öø-ÿ' -]/g;
+const NAME_INVALID_CHARACTERS = /[^a-zA-ZÀ-ÖØ-öø-ÿ' -]/;
+const PHONE_ALLOWED_CHARACTERS = /\D/g;
+const PHONE_INVALID_CHARACTERS = /\D/;
 
 export default function ProfileDetailsModal({
   isOpen,
@@ -130,6 +134,23 @@ export default function ProfileDetailsModal({
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!onSave) return;
+    if (
+      !formData.firstname.trim() ||
+      !formData.lastname.trim() ||
+      NAME_INVALID_CHARACTERS.test(formData.firstname) ||
+      NAME_INVALID_CHARACTERS.test(formData.middlename || "") ||
+      NAME_INVALID_CHARACTERS.test(formData.lastname)
+    ) {
+      NAME_ALLOWED_CHARACTERS.lastIndex = 0;
+      setSaveError("Names may contain letters, spaces, apostrophes, and hyphens only.");
+      return;
+    }
+    if ((formData.phone || "").length > 25 || PHONE_INVALID_CHARACTERS.test(formData.phone || "")) {
+      setSaveError("Phone number must contain numerical characters only and be limited to 25 characters.");
+      return;
+    }
+    NAME_ALLOWED_CHARACTERS.lastIndex = 0;
+    PHONE_ALLOWED_CHARACTERS.lastIndex = 0;
     if (formData.password && !isPasswordValid(formData.password)) {
       setSaveError("Password needs 8–15 characters with a capital letter, a number, and a symbol.");
       return;
@@ -226,7 +247,13 @@ export default function ProfileDetailsModal({
                     required={isEditing}
                     readOnly={!isEditing}
                     value={formData.firstname}
-                    onChange={(e) => setFormData({ ...formData, firstname: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        firstname: e.target.value.replace(NAME_ALLOWED_CHARACTERS, ""),
+                      })
+                    }
+                    maxLength={100}
                     className={fieldClass}
                   />
                 </div>
@@ -236,7 +263,13 @@ export default function ProfileDetailsModal({
                     readOnly={!isEditing}
                     placeholder={isEditing ? "Optional" : "Not provided"}
                     value={isEditing ? (formData.middlename || "") : (formData.middlename || "Not provided")}
-                    onChange={(e) => setFormData({ ...formData, middlename: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        middlename: e.target.value.replace(NAME_ALLOWED_CHARACTERS, ""),
+                      })
+                    }
+                    maxLength={100}
                     className={fieldClass}
                   />
                 </div>
@@ -246,7 +279,13 @@ export default function ProfileDetailsModal({
                     required={isEditing}
                     readOnly={!isEditing}
                     value={formData.lastname}
-                    onChange={(e) => setFormData({ ...formData, lastname: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        lastname: e.target.value.replace(NAME_ALLOWED_CHARACTERS, ""),
+                      })
+                    }
+                    maxLength={100}
                     className={fieldClass}
                   />
                 </div>
@@ -279,7 +318,11 @@ export default function ProfileDetailsModal({
                       ))}
                     </select>
                   ) : (
-                    <input readOnly value={formData.department || "Unassigned"} className={FIELD_VIEW} />
+                    <input
+                      disabled
+                      value={formData.department || "Unassigned"}
+                      className={`${FIELD_VIEW} cursor-not-allowed`}
+                    />
                   )}
                 </div>
               </div>
@@ -298,7 +341,11 @@ export default function ProfileDetailsModal({
                       ))}
                     </select>
                   ) : (
-                    <input readOnly value={formData.roleOrRank || "None"} className={FIELD_VIEW} />
+                    <input
+                      disabled
+                      value={formData.roleOrRank || "None"}
+                      className={`${FIELD_VIEW} cursor-not-allowed`}
+                    />
                   )}
                 </div>
 
@@ -315,7 +362,11 @@ export default function ProfileDetailsModal({
                       ))}
                     </select>
                   ) : (
-                    <input readOnly value={formData.status || "Active"} className={FIELD_VIEW} />
+                    <input
+                      disabled
+                      value={formData.status || "Active"}
+                      className={`${FIELD_VIEW} cursor-not-allowed`}
+                    />
                   )}
                 </div>
               </div>
@@ -336,9 +387,16 @@ export default function ProfileDetailsModal({
                   <input
                     readOnly={!isEditing}
                     type="tel"
-                    placeholder={isEditing ? "e.g. +63 912 345 6789" : "Not provided"}
+                    placeholder={isEditing ? "e.g. 639123456789" : "Not provided"}
                     value={isEditing ? (formData.phone || "") : (formData.phone || "Not provided")}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        phone: e.target.value.replace(PHONE_ALLOWED_CHARACTERS, "").slice(0, 25),
+                      })
+                    }
+                    maxLength={25}
+                    inputMode="numeric"
                     className={fieldClass}
                   />
                 </div>
@@ -479,4 +537,3 @@ export default function ProfileDetailsModal({
     </div>
   );
 }
-

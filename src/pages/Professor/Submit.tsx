@@ -1130,30 +1130,44 @@ export default function ProfSubmit() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <FieldLabel>Record Type</FieldLabel>
-              <select
-                value={recordType}
-                onChange={(e) => setRecordType(e.target.value)}
-                className={inputCls}
-                style={inputStyle}
-              >
-                <option>Accomplishment Report (AR)</option>
-                <option>Daily Time Record (DTR)</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={recordType}
+                  onChange={(e) => setRecordType(e.target.value)}
+                  className={`${inputCls} appearance-none pr-10`}
+                  style={inputStyle}
+                >
+                  <option>Accomplishment Report (AR)</option>
+                  <option>Daily Time Record (DTR)</option>
+                </select>
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-4 top-1/2 h-2 w-2 -translate-y-[3px] rotate-45 border-b-2 border-r-2"
+                  style={{ borderColor: "#111c14" }}
+                />
+              </div>
             </div>
             <div>
               <FieldLabel>Period</FieldLabel>
-              <select
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-                className={inputCls}
-                style={inputStyle}
-              >
-                <option>September Cycle 1</option>
-                <option>September Cycle 2</option>
-                <option>October Cycle 1</option>
-                <option>October Cycle 2</option>
-                <option>November Cycle 1</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                  className={`${inputCls} appearance-none pr-10`}
+                  style={inputStyle}
+                >
+                  <option>September Cycle 1</option>
+                  <option>September Cycle 2</option>
+                  <option>October Cycle 1</option>
+                  <option>October Cycle 2</option>
+                  <option>November Cycle 1</option>
+                </select>
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-4 top-1/2 h-2 w-2 -translate-y-[3px] rotate-45 border-b-2 border-r-2"
+                  style={{ borderColor: "#111c14" }}
+                />
+              </div>
             </div>
           </div>
         </SectionCard>
@@ -1527,7 +1541,7 @@ export default function ProfSubmit() {
                                   .join(",")
                               )
                             }
-                            className="rounded-md border border-dashed border-[#a3d9bc] bg-[#f8fdf9] px-2 py-1 text-[12.5px] font-semibold text-[#111c14] outline-none transition-colors focus:border-[#009668] focus:bg-white"
+                            className="h-11 rounded-xl border border-[#e8eeea] bg-[#fafbfa] px-3.5 text-[12.5px] font-semibold text-[#111c14] outline-none transition-colors focus:border-[#009668] focus:bg-white"
                           />
                           <span className="text-[11.5px] font-medium text-[#718576]">
                             Select each date from the calendar
@@ -1593,7 +1607,8 @@ export default function ProfSubmit() {
                           onChange={(e) =>
                             updateCourseField(course.id, "topics", e.target.value)
                           }
-                          className="w-full rounded-md border border-dashed border-[#a3d9bc] bg-[#f8fdf9] px-2 py-1 font-bold uppercase tracking-wide text-[#111c14] outline-none placeholder:normal-case placeholder:font-normal placeholder:text-gray-400 focus:border-[#009668] focus:bg-white"
+                          className={`${inputCls} uppercase tracking-wide placeholder:normal-case placeholder:font-normal placeholder:text-gray-400`}
+                          style={inputStyle}
                         />
                       </td>
                     </tr>
@@ -1615,7 +1630,8 @@ export default function ProfSubmit() {
                           onChange={(e) =>
                             updateCourseField(course.id, "tasks", e.target.value)
                           }
-                          className="w-full rounded-md border border-dashed border-[#a3d9bc] bg-[#f8fdf9] px-2 py-1 font-medium text-[#111c14] outline-none placeholder:text-gray-400 focus:border-[#009668] focus:bg-white"
+                          className={`${inputCls} placeholder:text-gray-400`}
+                          style={inputStyle}
                         />
                       </td>
                     </tr>
