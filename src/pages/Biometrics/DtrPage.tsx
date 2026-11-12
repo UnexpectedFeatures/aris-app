@@ -26,6 +26,11 @@ const LABEL = {
   completed: "Completed",
 } as const;
 
+const todayManila = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
+    new Date(),
+  );
+
 function lastPunchText(last?: DtrRecord) {
   if (!last) return "No punches recorded yet.";
   return last.time_out
@@ -47,11 +52,13 @@ function resultText(r: PunchResult) {
 }
 
 function rowStatus(r: DtrRecord) {
-  if (r.missed_time_in)
+  if (r.time_in && r.time_out)
+    return { label: "Complete", cls: "bg-[#047857]/10 text-[#064E3B]" };
+  if (r.missed_time_in || !r.time_in)
     return { label: "Missed time in", cls: "bg-red-50 text-red-700" };
-  if (r.missed_time_out)
+  if (r.missed_time_out || r.shift_date < todayManila())
     return { label: "Missed time out", cls: "bg-red-50 text-red-700" };
-  if (!r.time_out)
+  if (r.shift_date === todayManila() && !r.time_out)
     return { label: "In progress", cls: "bg-[#EDEDED] text-[#64748B]" };
   return { label: "Complete", cls: "bg-[#047857]/10 text-[#064E3B]" };
 }
@@ -78,7 +85,7 @@ function PunchModal({
     (result.action === "time_in" || result.action === "time_out")
       ? result.action
       : null;
-  const title = doneAction ? LABEL[doneAction] : LABEL[next];
+  const title = doneAction ? LABEL[doneAction] : next === "time_out" ? LABEL.time_out : LABEL.time_in;
 
   const close = () => {
     if (phase === "scanning") void cancelScan();
@@ -117,16 +124,10 @@ function PunchModal({
         ) : (
           <>
             <p className="text-sm text-[#64748B]">{lastPunchText(last)}</p>
-            {next === "completed" ? (
-              <p className="text-sm">
-                You already completed today's time in and time out.
-              </p>
-            ) : (
-              <p className="text-sm">
-                Scan your fingerprint on the authenticator to{" "}
-                {next === "time_in" ? "time in" : "time out"}.
-              </p>
-            )}
+            <p className="text-sm">
+              Scan your fingerprint on the authenticator to{" "}
+              {next === "time_in" ? "time in" : "time out"}.
+            </p>
             {!connected && (
               <div className={alertErr}>
                 Authenticator not connected. Connect it on the Authenticator
@@ -146,13 +147,17 @@ function PunchModal({
             </button>
           ) : (
             <>
-              <button className={btn} onClick={close}>
-                {phase === "scanning" ? "Cancel" : "Close"}
+              <button
+                className={btn}
+                disabled={phase === "submitting"}
+                onClick={close}
+              >
+                {phase === "scanning" ? "Cancel" : phase === "submitting" ? "Recording…" : "Close"}
               </button>
               {!busy && (
                 <button
                   className={btnPrimary}
-                  disabled={!connected || !deviceId || next === "completed"}
+                  disabled={!connected || !deviceId}
                   onClick={() => deviceId && void punchNow(deviceId)}
                 >
                   {phase === "failed" ? "Try again" : "Scan fingerprint"}
@@ -184,10 +189,18 @@ export default function DtrPage() {
   const last = mine[0];
   const connected = status.connected && !!status.device;
   const deviceId = status.device?.deviceId;
+  const punchBusy = s.punch.phase === "scanning" || s.punch.phase === "submitting";
 
   const rows = issuesOnly
     ? s.records.filter((r) => r.missed_time_in || r.missed_time_out)
     : s.records;
+  const dailyHours = new Map<string, number>();
+  for (const record of s.records) {
+    const key = `${record.shift_date}:${record.professor_id ?? record.staff_id ?? ""}`;
+    if (record.time_in && record.time_out) {
+      dailyHours.set(key, (dailyHours.get(key) ?? 0) + Number(record.total_hours || 0));
+    }
+  }
   const multi =
     new Set(s.records.map((r) => r.professor_id ?? r.staff_id)).size > 1;
 
@@ -204,10 +217,10 @@ export default function DtrPage() {
           </div>
           <button
             className={btnPrimary}
-            disabled={!s.userId || next === "completed"}
+            disabled={punchBusy}
             onClick={() => setOpen(true)}
           >
-            {next === "completed" ? "Completed today" : LABEL[next]}
+            {next === "time_out" ? LABEL.time_out : LABEL.time_in}
           </button>
         </header>
 
@@ -262,6 +275,7 @@ export default function DtrPage() {
                   <th className="py-2 pr-4">Time in</th>
                   <th className="py-2 pr-4">Time out</th>
                   <th className="py-2 pr-4">Hours</th>
+                  <th className="py-2 pr-4">Daily total</th>
                   <th className="py-2">Status</th>
                 </tr>
               </thead>
@@ -286,6 +300,9 @@ export default function DtrPage() {
                       <td className="py-2 pr-4">
                         {r.time_out ? Number(r.total_hours).toFixed(2) : "—"}
                       </td>
+                      <td className="py-2 pr-4">
+                        {dailyHours.get(`${r.shift_date}:${r.professor_id ?? r.staff_id ?? ""}`)?.toFixed(2) ?? "0.00"}
+                      </td>
                       <td className="py-2">
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs ${st.cls}`}
@@ -299,7 +316,7 @@ export default function DtrPage() {
                 {!rows.length && !s.loading && (
                   <tr>
                     <td
-                      colSpan={multi ? 6 : 5}
+                      colSpan={multi ? 7 : 6}
                       className="py-6 text-center text-[#64748B]"
                     >
                       No records.

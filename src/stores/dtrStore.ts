@@ -59,7 +59,6 @@ interface DtrState {
 }
 
 const IDLE: PunchState = { phase: "idle", result: null, error: null };
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 const SCAN_TEXT: Record<string, string> = {
   no_match: "Fingerprint not recognised.",
@@ -92,8 +91,17 @@ const subscribe = (l: () => void) => {
 export const useDtrStore = () => useSyncExternalStore(subscribe, () => state);
 
 function message(e: unknown): string {
-  const m = (e as { response?: { data?: { message?: string | string[] } } })
-    ?.response?.data?.message;
+  const responseData = (
+    e as {
+      response?: {
+        data?: {
+          message?: string | string[];
+          error?: string | string[];
+        };
+      };
+    }
+  )?.response?.data;
+  const m = responseData?.message ?? responseData?.error;
   if (m) return Array.isArray(m) ? m.join(", ") : m;
   return toBridgeError(e).message;
 }
@@ -112,17 +120,10 @@ const todayManila = () =>
     new Date(),
   );
 
-// Mirrors the server rule: open row inside 24h -> time out; today's closed row -> completed.
+// Mirrors the server rule: time out today's latest open row; otherwise start a new row.
 export function selectNextAction(mine: DtrRecord[]): NextAction {
-  const last = mine[0];
-  if (!last) return "time_in";
-  const open =
-    !!last.time_in &&
-    !last.time_out &&
-    Date.now() - Date.parse(last.created_at) < DAY_MS;
-  if (open) return "time_out";
-  if (last.shift_date === todayManila() && last.time_out) return "completed";
-  return "time_in";
+  const latestToday = mine.find((record) => record.shift_date === todayManila());
+  return latestToday?.time_in && !latestToday.time_out ? "time_out" : "time_in";
 }
 
 // ───────── actions ─────────
@@ -191,6 +192,7 @@ export async function punchNow(deviceId: string, timeoutMs = 10000) {
   } catch (e) {
     if (live())
       set({ punch: { phase: "failed", result: null, error: message(e) } });
+  } finally {
+    await loadDtr();
   }
-  void loadDtr(); // the server may have written a row even if the modal was closed
 }

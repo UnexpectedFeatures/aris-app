@@ -1,8 +1,9 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { BarChart3, CheckCircle2, Leaf } from "lucide-react"
 import { cancel, onUrl, start } from "@fabianlars/tauri-plugin-oauth"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { invoke } from "@tauri-apps/api/core"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import arisLogo from "@/assets/brand/image.png"
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui"
 
@@ -54,6 +55,8 @@ export default function Login({
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [isContactOpen, setIsContactOpen] = useState(false)
+  const submittingRef = useRef(false)
+  const signInAttemptRef = useRef(0)
 
   const contactSupport = () => {
     const body = `Hello IT Administration,\n\nI need help with my ARIS Professor account.`
@@ -62,47 +65,83 @@ export default function Login({
   }
 
   const signInWithGoogle = async () => {
+    if (submittingRef.current) return
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
     if (!clientId) {
       setError("Google sign-in is not configured.")
       return
     }
+    submittingRef.current = true
     setSubmitting(true)
     setError(null)
     const state = crypto.randomUUID()
+    const attempt = ++signInAttemptRef.current
     let port: number | undefined
     let unlisten: (() => void) | undefined
+    let unlistenFocus: (() => void) | undefined
+    let callbackTimeout: number | undefined
+    let focusTimeout: number | undefined
+    let settled = false
+    let callbackReceived = false
+    let resolveCallback: (() => void) | undefined
+    const callback = new Promise<void>((resolve) => {
+      resolveCallback = resolve
+    })
+    const finish = (failure?: string) => {
+      if (settled || signInAttemptRef.current !== attempt) return
+      settled = true
+      if (failure) setError(failure)
+      submittingRef.current = false
+      setSubmitting(false)
+      signInAttemptRef.current++
+      resolveCallback?.()
+    }
+
     try {
       port = await start({
         ports: [8765, 8766, 8767],
         response: oauthCallbackPage,
       })
-      const callback = new Promise<void>((resolve) => {
-        void onUrl((redirectUrl) => {
+      let appLostFocus = false
+      unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+        if (!focused) {
+          appLostFocus = true
+          return
+        }
+        if (!appLostFocus || callbackReceived || settled) return
+        if (focusTimeout !== undefined) window.clearTimeout(focusTimeout)
+        focusTimeout = window.setTimeout(() => {
+          if (!callbackReceived) finish()
+        }, 800)
+      })
+      callbackTimeout = window.setTimeout(() => {
+        finish("Sign-in timed out. Try again.")
+      }, 60_000)
+
+      unlisten = await onUrl(async (redirectUrl) => {
+        if (settled || signInAttemptRef.current !== attempt) return
+        callbackReceived = true
+        if (focusTimeout !== undefined) window.clearTimeout(focusTimeout)
+        try {
           const callbackUrl = new URL(redirectUrl)
           const params = new URLSearchParams(callbackUrl.hash.slice(1) || callbackUrl.search.slice(1))
           if (params.get("state") !== state) {
-            setError("Google sign-in returned an invalid state.")
-            resolve()
-            return
+            throw new Error("Google sign-in returned an invalid state.")
           }
           const idToken = params.get("id_token")
           if (!idToken) {
-            setError("Google sign-in did not return an identity token.")
-            resolve()
-            return
+            throw new Error("Google sign-in did not return an identity token.")
           }
           const accessToken = params.get("access_token")
           if (accessToken) {
             sessionStorage.setItem("aris-google-access-token", accessToken)
             localStorage.setItem("aris-google-access-token", accessToken)
           }
-          void onGoogleSignIn(idToken)
-            .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to sign in with Google."))
-            .finally(resolve)
-        }).then((removeListener) => {
-          unlisten = removeListener
-        })
+          await onGoogleSignIn(idToken)
+          finish()
+        } catch (reason) {
+          finish(reason instanceof Error ? reason.message : "Unable to sign in with Google.")
+        }
       })
       const redirectUri = `http://127.0.0.1:${port}`
       const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth")
@@ -123,10 +162,13 @@ export default function Login({
       }
       await callback
     } catch (reason) {
-      setError(reason instanceof Error ? `Unable to start Google sign-in: ${reason.message}` : `Unable to start Google sign-in: ${String(reason)}`)
-      setSubmitting(false)
+      finish(reason instanceof Error ? `Unable to complete Google sign-in: ${reason.message}` : `Unable to complete Google sign-in: ${String(reason)}`)
     } finally {
-      if (unlisten) unlisten()
+      finish()
+      if (callbackTimeout !== undefined) window.clearTimeout(callbackTimeout)
+      if (focusTimeout !== undefined) window.clearTimeout(focusTimeout)
+      unlisten?.()
+      unlistenFocus?.()
       if (port) await cancel(port).catch(() => undefined)
       try {
         await invoke("close_oauth_window");
