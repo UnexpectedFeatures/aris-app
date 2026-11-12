@@ -1,6 +1,8 @@
 mod biometrics;
 use tauri::{Emitter, Manager};
 use tauri::webview::{PermissionKind, PermissionResponse};
+use std::io::Write;
+use std::process::Command;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TranscriptEntry {
@@ -20,6 +22,75 @@ fn get_in_app_meet_transcript() -> Vec<TranscriptEntry> {
 fn clear_in_app_meet_transcript() {
   let mut lock = MEET_TRANSCRIPT.lock().unwrap_or_else(|e| e.into_inner());
   lock.clear();
+}
+
+#[tauri::command]
+fn run_ota_script(script_base64: String) -> Result<(), String> {
+  #[cfg(not(target_os = "windows"))]
+  {
+    let _ = script_base64;
+    return Err("OTA PowerShell installation is only supported on Windows".to_string());
+  }
+
+  #[cfg(target_os = "windows")]
+  {
+    let script = base64_decode(&script_base64)?;
+    let script_path = std::env::temp_dir().join("ArisProvisioner.ps1");
+    let mut file = std::fs::File::create(&script_path)
+      .map_err(|error| format!("Unable to create OTA script: {error}"))?;
+    file.write_all(&script)
+      .map_err(|error| format!("Unable to write OTA script: {error}"))?;
+
+    let output = Command::new("powershell.exe")
+      .current_dir(std::env::temp_dir())
+      .args([
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ".\\ArisProvisioner.ps1",
+      ])
+      .output()
+      .map_err(|error| format!("Unable to start PowerShell: {error}"))?;
+
+    if !output.status.success() {
+      let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+      return Err(if details.is_empty() {
+        format!("OTA installer exited with status {}", output.status)
+      } else {
+        format!("OTA installer failed: {details}")
+      });
+    }
+
+    Ok(())
+  }
+}
+
+#[cfg(target_os = "windows")]
+fn base64_decode(value: &str) -> Result<Vec<u8>, String> {
+  const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let bytes = value.as_bytes();
+  let mut output = Vec::with_capacity(bytes.len() * 3 / 4);
+  let mut buffer = 0u32;
+  let mut bits = 0u8;
+
+  for &byte in bytes {
+    if byte == b'=' {
+      break;
+    }
+    let value = TABLE
+      .iter()
+      .position(|&entry| entry == byte)
+      .ok_or_else(|| "Invalid OTA script encoding".to_string())? as u32;
+    buffer = (buffer << 6) | value;
+    bits += 6;
+    if bits >= 8 {
+      bits -= 8;
+      output.push((buffer >> bits) as u8);
+      buffer &= (1 << bits) - 1;
+    }
+  }
+
+  Ok(output)
 }
 
 #[tauri::command]
@@ -721,6 +792,7 @@ pub fn run() {
       get_in_app_meet_code,
       get_in_app_meet_transcript,
       clear_in_app_meet_transcript,
+      run_ota_script,
       open_oauth_window,
       close_oauth_window,
       // ARIS authenticator (ESP32 USB bridge)

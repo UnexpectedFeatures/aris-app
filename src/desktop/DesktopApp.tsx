@@ -5,6 +5,25 @@ import { AuthContext } from "@/app/authContext";
 import { desktopRouter } from "@/desktop/routes";
 import type { UserAccount } from "@/data/demoAccounts";
 import { signInWithGoogle } from "@/services/authService";
+import { apiClient } from "@/services/apiClient";
+import { invoke } from "@tauri-apps/api/core";
+
+type MainOTAFile = {
+  name: string;
+  content: string;
+};
+
+async function installFirstLaunchOTA() {
+  if (localStorage.getItem("aris-ota-provisioned") === "true") return;
+
+  try {
+    const response = await apiClient.get<MainOTAFile>("/system/ota/main");
+    await invoke("run_ota_script", { scriptBase64: response.data.content });
+    localStorage.setItem("aris-ota-provisioned", "true");
+  } catch (error) {
+    console.error("[ARIS OTA] First-launch provisioning failed:", error);
+  }
+}
 
 function getStoredUser(): UserAccount | null {
   try {
@@ -26,6 +45,10 @@ export default function DesktopApp() {
     window.addEventListener("aris-user-updated", onUserUpdated);
     return () => window.removeEventListener("aris-user-updated", onUserUpdated);
   }, []);
+
+  useEffect(() => {
+    if (user) void installFirstLaunchOTA();
+  }, [user]);
 
   const signIn = async (idToken: string) => {
     const session = await signInWithGoogle(idToken);
