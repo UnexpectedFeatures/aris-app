@@ -18,6 +18,8 @@ export interface SavedMeetingRecord {
   status: string;
   info?: string;
   created_at?: string;
+  auth_in?: boolean;
+  auth_out?: boolean;
 }
 
 export interface SaveMeetingPayload {
@@ -41,6 +43,8 @@ export interface SaveMeetingPayload {
   transcript_source?: string;
   participants?: string[];
   word_count?: number;
+  auth_in?: boolean;
+  auth_out?: boolean;
 }
 
 interface ApiResponse<T> {
@@ -54,12 +58,12 @@ interface ApiResponse<T> {
 const LOCAL_STORAGE_KEY = "aris:meet_sessions";
 
 export async function saveMeetingToDb(
-  payload: SaveMeetingPayload
+  payload: SaveMeetingPayload,
 ): Promise<SavedMeetingRecord | null> {
   try {
     const response = await apiClient.post<ApiResponse<SavedMeetingRecord>>(
       "/meetings",
-      payload
+      payload,
     );
 
     if (response.data && "data" in response.data && response.data.data) {
@@ -72,12 +76,33 @@ export async function saveMeetingToDb(
   }
 }
 
+/** Marks auth_out = true (fingerprint-verified time out). Throws on failure so callers can react. */
+export async function updateMeetingAuthOut(
+  id: string,
+): Promise<SavedMeetingRecord> {
+  const response = await apiClient.patch<ApiResponse<SavedMeetingRecord>>(
+    `/meetings/${id}/auth-out`,
+  );
+  const record = response.data?.data;
+  if (!record) {
+    throw new Error(
+      response.data?.message ||
+        response.data?.error ||
+        "Could not save time out",
+    );
+  }
+  return record;
+}
+
 export async function fetchMeetingsFromDb(): Promise<SavedMeetingRecord[]> {
   try {
-    const response = await apiClient.get<ApiResponse<SavedMeetingRecord[]>>(
-      "/meetings"
-    );
-    if (response.data && "data" in response.data && Array.isArray(response.data.data)) {
+    const response =
+      await apiClient.get<ApiResponse<SavedMeetingRecord[]>>("/meetings");
+    if (
+      response.data &&
+      "data" in response.data &&
+      Array.isArray(response.data.data)
+    ) {
       return response.data.data;
     }
     if (Array.isArray(response.data)) {
@@ -117,14 +142,22 @@ export interface MeetingSummaryItem {
   transcript: { t: string; who: string; text: string }[];
   meeting_code?: string;
   meeting_url?: string;
+  auth_in?: boolean;
+  auth_out?: boolean;
 }
 
-export async function fetchMeetingSummariesFromDb(): Promise<MeetingSummaryItem[]> {
+export async function fetchMeetingSummariesFromDb(): Promise<
+  MeetingSummaryItem[]
+> {
   try {
     const response = await apiClient.get<ApiResponse<MeetingSummaryItem[]>>(
-      "/meetings/summaries"
+      "/meetings/summaries",
     );
-    if (response.data && "data" in response.data && Array.isArray(response.data.data)) {
+    if (
+      response.data &&
+      "data" in response.data &&
+      Array.isArray(response.data.data)
+    ) {
       return response.data.data;
     }
     if (Array.isArray(response.data)) {
@@ -136,4 +169,3 @@ export async function fetchMeetingSummariesFromDb(): Promise<MeetingSummaryItem[
     return [];
   }
 }
-

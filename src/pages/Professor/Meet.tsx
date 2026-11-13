@@ -1,3 +1,4 @@
+/* eslint-disable no-empty */
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,15 +13,14 @@ import {
   Calendar,
   Clock,
   Plus,
-  PhoneCall,
   PhoneOff,
-  Users,
   Sparkles,
   Link as LinkIcon,
   Radio,
   Maximize2,
-  ShieldCheck,
   RefreshCw,
+  Fingerprint,
+  Usb,
 } from "lucide-react";
 import { BRAND } from "@/config/navigation";
 import { useAuth } from "@/app/authContext";
@@ -32,7 +32,11 @@ import {
   Badge,
   Modal,
 } from "@/components/ui";
-import { saveMeetingToDb, fetchMeetingsFromDb } from "@/services/meetingService";
+import {
+  saveMeetingToDb,
+  fetchMeetingsFromDb,
+  updateMeetingAuthOut,
+} from "@/services/meetingService";
 import {
   queueMeetTeachingLoadAutofill,
   parseCourseString,
@@ -42,6 +46,9 @@ import {
 } from "@/services/meetAutofillService";
 import { loadResource } from "@/services/dataSource";
 import { supabase } from "@/services/supabase";
+import { authenticatorApi } from "@/services/rustMiddleware";
+import { useAuthenticator } from "@/services/useAuthenticator";
+import { toBridgeError } from "@/data/types";
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 
@@ -57,6 +64,23 @@ export type MeetSession = {
   status: "Upcoming" | "In Progress" | "Completed";
   participantsCount?: number;
   summaryId?: string;
+  authIn?: boolean;
+  authOut?: boolean;
+};
+
+type VerifyPurpose = "in" | "out";
+type VerifyState = {
+  open: boolean;
+  purpose: VerifyPurpose;
+  phase: "idle" | "scanning" | "failed";
+  error: string | null;
+};
+
+const SCAN_TEXT: Record<string, string> = {
+  no_match: "Fingerprint not recognised.",
+  scan_timeout: "No finger detected in time.",
+  sensor_unavailable: "Fingerprint sensor is not connected.",
+  busy: "The authenticator is busy with another operation.",
 };
 
 /* ─── Helpers ──────────────────────────────────────────────────────────────── */
@@ -100,28 +124,26 @@ async function closeInAppMeet() {
 
 /** Call Google Meet REST API via Tauri backend (bypasses CORS) to create a real meeting space */
 async function createMeetSpaceViaApi(
-  accessToken: string
+  accessToken: string,
 ): Promise<{ meetingUri: string; meetingCode: string }> {
-  // Use the Rust command which calls https://meet.googleapis.com/v2/spaces
   const data = (await invoke("create_meet_space", {
     accessToken,
   })) as { meetingUri?: string; meetingCode?: string; name?: string };
 
   const meetingCode =
-    data.meetingCode ??
-    data.name?.replace("spaces/", "") ??
-    "";
+    data.meetingCode ?? data.name?.replace("spaces/", "") ?? "";
   const meetingUri =
     data.meetingUri ?? `https://meet.google.com/${meetingCode}`;
 
   return { meetingUri, meetingCode };
 }
+void createMeetSpaceViaApi;
 
 function generateRandomCode(): string {
   const letters = "abcdefghijklmnopqrstuvwxyz";
   const part = (len: number) =>
     Array.from({ length: len }, () =>
-      letters.charAt(Math.floor(Math.random() * letters.length))
+      letters.charAt(Math.floor(Math.random() * letters.length)),
     ).join("");
   return `${part(3)}-${part(4)}-${part(3)}`;
 }
@@ -132,7 +154,10 @@ function cleanMeetCode(input: string): string {
   if (match) return match[1].toLowerCase();
 
   let clean = input.trim().replace(/^https?:\/\/meet\.google\.com\//i, "");
-  clean = clean.split("?")[0].replace(/[^a-zA-Z-]/g, "").toLowerCase();
+  clean = clean
+    .split("?")[0]
+    .replace(/[^a-zA-Z-]/g, "")
+    .toLowerCase();
   return clean;
 }
 
@@ -157,6 +182,20 @@ export default function ProfMeet() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // Authenticator (USB fingerprint device)
+  const auth = useAuthenticator();
+  const { status: authStatus } = auth;
+  const authConnected = authStatus.connected && !!authStatus.device;
+  const [authPort, setAuthPort] = useState("");
+
+  useEffect(() => {
+    if (authStatus.connected && authStatus.portName) {
+      setAuthPort(authStatus.portName);
+    } else if (!authStatus.connected) {
+      setAuthPort("");
+    }
+  }, [authStatus.connected, authStatus.portName]);
+
   // Connected OAuth Account Details
   const oauthEmail =
     user.email ||
@@ -165,12 +204,6 @@ export default function ProfMeet() {
     "professor@ucc.edu.ph";
 
   const oauthName = user.name || "Professor";
-
-  // Google OAuth Access Token (captured during login for Meet API)
-  const oauthAccessToken =
-    sessionStorage.getItem("aris-google-access-token") ||
-    localStorage.getItem("aris-google-access-token") ||
-    "";
 
   // Meetings List State — strictly loaded from database
   const [meetings, setMeetings] = useState<MeetSession[]>(() => {
@@ -187,7 +220,7 @@ export default function ProfMeet() {
             m.code !== "xyt-omwb-qsk" &&
             m.code !== "pqa-vrbn-mto" &&
             m.code !== "gkc-qrfz-dxy" &&
-            m.code !== "nbv-tzxa-wql"
+            m.code !== "nbv-tzxa-wql",
         );
       }
       return [];
@@ -198,15 +231,6 @@ export default function ProfMeet() {
 
   const [isLoadingMeetings, setIsLoadingMeetings] = useState(true);
 
-  const saveMeetings = (list: MeetSession[]) => {
-    setMeetings(list);
-    try {
-      localStorage.setItem("aris:meet_sessions", JSON.stringify(list));
-    } catch {
-      // ignore
-    }
-  };
-
   // Join by code state
   const [joinInput, setJoinInput] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -215,7 +239,9 @@ export default function ProfMeet() {
   const [historyPage, setHistoryPage] = useState(1);
 
   // Courses for Teaching Load allocation
-  const [availableCourses, setAvailableCourses] = useState<MinimalCourseInfo[]>([]);
+  const [availableCourses, setAvailableCourses] = useState<MinimalCourseInfo[]>(
+    [],
+  );
   const [instantCourse, setInstantCourse] = useState("CC 105 · BSIT 2B");
 
   // Load professor's assigned curriculum courses
@@ -226,7 +252,7 @@ export default function ProfMeet() {
       try {
         const res = await loadResource<MinimalCourseInfo[]>(
           `/professor/courses?email=${encodeURIComponent(user.email)}`,
-          []
+          [],
         );
         if (Array.isArray(res) && res.length > 0) list = res;
       } catch {}
@@ -243,7 +269,11 @@ export default function ProfMeet() {
       if (list.length === 0) {
         list = [
           { code: "CC 105", title: "INFORMATION MANAGEMENT", units: 3 },
-          { code: "CC 116", title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES", units: 5 },
+          {
+            code: "CC 116",
+            title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
+            units: 5,
+          },
           { code: "CS 201", title: "DATA STRUCTURES AND ALGORITHMS", units: 3 },
           { code: "IT 301", title: "WEB SYSTEMS AND TECHNOLOGIES", units: 3 },
         ];
@@ -267,6 +297,7 @@ export default function ProfMeet() {
     url: string;
     startedAt: number;
     elapsedSeconds: number;
+    authIn: boolean;
   } | null>(null);
 
   const activeCallRef = useRef(activeCall);
@@ -274,8 +305,15 @@ export default function ProfMeet() {
 
   const isEndingCallRef = useRef(false);
 
-  const meetingsRef = useRef(meetings);
-  meetingsRef.current = meetings;
+  // Fingerprint verification modal state
+  const [verify, setVerify] = useState<VerifyState>({
+    open: false,
+    purpose: "in",
+    phase: "idle",
+    error: null,
+  });
+  const verifyResolveRef = useRef<((ts: string | null) => void) | null>(null);
+  const scanIdRef = useRef(0);
 
   // Hardware AV Test state
   const [isAvTesting, setIsAvTesting] = useState(false);
@@ -285,8 +323,12 @@ export default function ProfMeet() {
   const [avError, setAvError] = useState<string | null>(null);
 
   // Live Meet Caption & Transcript State
-  const [liveTranscript, setLiveTranscript] = useState<{ who: string; text: string; t: string }[]>([]);
-  const liveTranscriptRef = useRef<{ who: string; text: string; t: string }[]>([]);
+  const [liveTranscript, setLiveTranscript] = useState<
+    { who: string; text: string; t: string }[]
+  >([]);
+  const liveTranscriptRef = useRef<{ who: string; text: string; t: string }[]>(
+    [],
+  );
   liveTranscriptRef.current = liveTranscript;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -307,6 +349,49 @@ export default function ProfMeet() {
   const [schedNotes, setSchedNotes] = useState("");
   const [schedCustomCode, setSchedCustomCode] = useState("");
 
+  /* ─── Fingerprint verification ───────────────────────────────────────────── */
+
+  const runScan = async () => {
+    const id = ++scanIdRef.current;
+    setVerify((v) => ({ ...v, phase: "scanning", error: null }));
+    try {
+      await authenticatorApi.send("match", { timeoutMs: 10000 });
+      if (id !== scanIdRef.current) return;
+      const ts = new Date().toISOString();
+      const resolve = verifyResolveRef.current;
+      verifyResolveRef.current = null;
+      setVerify((v) => ({ ...v, open: false, phase: "idle", error: null }));
+      resolve?.(ts);
+    } catch (e) {
+      if (id !== scanIdRef.current) return;
+      const err = toBridgeError(e);
+      setVerify((v) => ({
+        ...v,
+        phase: "failed",
+        error: SCAN_TEXT[err.code] ?? err.message,
+      }));
+    }
+  };
+
+  /** Opens the verify modal and auto-starts a scan. Resolves with an ISO timestamp, or null if cancelled/skipped. */
+  const requestVerify = (purpose: VerifyPurpose) =>
+    new Promise<string | null>((resolve) => {
+      verifyResolveRef.current = resolve;
+      setVerify({ open: true, purpose, phase: "idle", error: null });
+      void runScan();
+    });
+
+  const cancelVerify = () => {
+    scanIdRef.current++; // invalidate any in-flight scan
+    void authenticatorApi.send("cancel").catch(() => {});
+    const resolve = verifyResolveRef.current;
+    verifyResolveRef.current = null;
+    setVerify((v) => ({ ...v, open: false, phase: "idle", error: null }));
+    resolve?.(null);
+  };
+
+  /* ─── Effects ────────────────────────────────────────────────────────────── */
+
   // Live Timer & dynamic meeting code detection for active call
   useEffect(() => {
     if (!activeCall) return;
@@ -317,7 +402,7 @@ export default function ProfMeet() {
               ...prev,
               elapsedSeconds: Math.floor((Date.now() - prev.startedAt) / 1000),
             }
-          : null
+          : null,
       );
 
       // Periodically check if Google has allocated the real room code
@@ -340,7 +425,7 @@ export default function ProfMeet() {
                       code: clean,
                       url: buildMeetUrl(clean, oauthEmail),
                     }
-                  : prev
+                  : prev,
               );
             }
           }
@@ -391,18 +476,27 @@ export default function ProfMeet() {
     let unlisten: (() => void) | undefined;
     let isCancelled = false;
 
-    listen<{ who: string; text: string; t: string }>("meet-transcript-chunk", (event) => {
-      if (!event.payload || !event.payload.text) return;
-      console.log(`%c[ARIS FRONTEND] 🎙️ CAPTION RECEIVED: [${event.payload.t}] ${event.payload.who}: ${event.payload.text}`, "color: #16a34a; font-weight: bold;");
-      setLiveTranscript((prev) => {
-        // Prevent immediate duplicates
-        const last = prev[prev.length - 1];
-        if (last && last.who === event.payload.who && last.text === event.payload.text) {
-          return prev;
-        }
-        return [...prev, event.payload];
-      });
-    }).then((fn) => {
+    listen<{ who: string; text: string; t: string }>(
+      "meet-transcript-chunk",
+      (event) => {
+        if (!event.payload || !event.payload.text) return;
+        console.log(
+          `%c[ARIS FRONTEND] 🎙️ CAPTION RECEIVED: [${event.payload.t}] ${event.payload.who}: ${event.payload.text}`,
+          "color: #16a34a; font-weight: bold;",
+        );
+        setLiveTranscript((prev) => {
+          const last = prev[prev.length - 1];
+          if (
+            last &&
+            last.who === event.payload.who &&
+            last.text === event.payload.text
+          ) {
+            return prev;
+          }
+          return [...prev, event.payload];
+        });
+      },
+    ).then((fn) => {
       if (isCancelled) {
         fn();
       } else {
@@ -435,11 +529,15 @@ export default function ProfMeet() {
     setIsLoadingMeetings(true);
     try {
       const dbRecords = await fetchMeetingsFromDb();
-      const mapped: MeetSession[] = (dbRecords || []).map((r) => {
+      const mapped: MeetSession[] = (dbRecords || []).map((raw) => {
+        const r = raw;
         const startStr = r.started_at ? new Date(r.started_at) : null;
         const endStr = r.ended_at ? new Date(r.ended_at) : null;
         const timeDisplay =
-          startStr && endStr && !isNaN(startStr.getTime()) && !isNaN(endStr.getTime())
+          startStr &&
+          endStr &&
+          !isNaN(startStr.getTime()) &&
+          !isNaN(endStr.getTime())
             ? `${startStr.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${endStr.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
             : `${r.start_time || ""} – ${r.end_time || ""}`;
 
@@ -450,17 +548,28 @@ export default function ProfMeet() {
         let dateDisplay = "Recent";
         if (r.meeting_date) {
           const todayStr = new Date().toISOString().split("T")[0];
-          const meetStr = typeof r.meeting_date === "string" ? r.meeting_date.split("T")[0] : "";
+          const meetStr =
+            typeof r.meeting_date === "string"
+              ? r.meeting_date.split("T")[0]
+              : "";
           if (meetStr === todayStr) {
             dateDisplay = "Today";
           } else {
             const d = new Date(r.meeting_date);
             dateDisplay = !isNaN(d.getTime())
-              ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+              ? d.toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
               : String(r.meeting_date);
           }
         } else if (startStr && !isNaN(startStr.getTime())) {
-          dateDisplay = startStr.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+          dateDisplay = startStr.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
         }
 
         return {
@@ -471,13 +580,19 @@ export default function ProfMeet() {
           time: timeDisplay,
           duration: durFormatted,
           code: r.meeting_code || "meet",
-          url: r.meeting_url || (r.meeting_code ? `https://meet.google.com/${r.meeting_code}` : "https://meet.google.com"),
+          url:
+            r.meeting_url ||
+            (r.meeting_code
+              ? `https://meet.google.com/${r.meeting_code}`
+              : "https://meet.google.com"),
           status: (r.status === "scheduled"
             ? "Upcoming"
             : r.status === "in_progress"
-            ? "In Progress"
-            : "Completed") as MeetSession["status"],
+              ? "In Progress"
+              : "Completed") as MeetSession["status"],
           participantsCount: 1,
+          authIn: r.auth_in === true,
+          authOut: r.auth_out === true,
         };
       });
 
@@ -546,7 +661,9 @@ export default function ProfMeet() {
       setMicOn(true);
     } catch (err: unknown) {
       const msg =
-        err instanceof Error ? err.message : "Camera / mic access denied or unavailable";
+        err instanceof Error
+          ? err.message
+          : "Camera / mic access denied or unavailable";
       setAvError(msg);
       setIsAvTesting(false);
     }
@@ -602,6 +719,22 @@ export default function ProfMeet() {
   };
 
   const handleStartInstant = async () => {
+    if (activeCallRef.current || verify.open) return;
+
+    if (!authConnected) {
+      setToastMessage("Connect your authenticator first to launch a meeting.");
+      return;
+    }
+
+    // Fingerprint gate: no verification, no meeting
+    const verifiedAt = await requestVerify("in");
+    if (!verifiedAt) {
+      setToastMessage(
+        "Fingerprint verification is required to launch a meeting.",
+      );
+      return;
+    }
+
     isEndingCallRef.current = false;
     setLiveTranscript([]);
     void invoke("clear_in_app_meet_transcript").catch(() => {});
@@ -622,9 +755,12 @@ export default function ProfMeet() {
       url,
       startedAt: Date.now(),
       elapsedSeconds: 0,
+      authIn: true,
     });
 
-    setToastMessage(`Google Meet connecting for ${courseForMeeting}...`);
+    setToastMessage(
+      `Verified. Google Meet connecting for ${courseForMeeting}...`,
+    );
   };
 
   const handleJoinWithCode = async (customCode?: string) => {
@@ -632,6 +768,22 @@ export default function ProfMeet() {
     const clean = cleanMeetCode(raw);
     if (!clean) {
       setToastMessage("Please enter a valid meeting code or link.");
+      return;
+    }
+
+    if (activeCallRef.current || verify.open) return;
+
+    if (!authConnected) {
+      setToastMessage("Connect your authenticator first to join a meeting.");
+      return;
+    }
+
+    // Fingerprint gate: no verification, no joining
+    const verifiedAt = await requestVerify("in");
+    if (!verifiedAt) {
+      setToastMessage(
+        "Fingerprint verification is required to join a meeting.",
+      );
       return;
     }
 
@@ -651,32 +803,11 @@ export default function ProfMeet() {
       url,
       startedAt: Date.now(),
       elapsedSeconds: 0,
+      authIn: true,
     });
 
     setJoinInput("");
     setToastMessage(`Joined meet.google.com/${clean} as ${oauthEmail}`);
-  };
-
-  const handleJoinSession = async (session: MeetSession) => {
-    isEndingCallRef.current = false;
-    setLiveTranscript([]);
-    void invoke("clear_in_app_meet_transcript").catch(() => {});
-    const url = buildMeetUrl(session.code, oauthEmail);
-    const windowTitle = `ARIS — ${session.title} (${oauthEmail})`;
-
-    await openInAppMeet(url, windowTitle, oauthName);
-
-    setActiveCall({
-      id: session.id,
-      title: session.title,
-      course: session.course || instantCourse || "CC 105 · BSIT 2B",
-      code: session.code,
-      url,
-      startedAt: Date.now(),
-      elapsedSeconds: 0,
-    });
-
-    setToastMessage(`Starting ${session.title} as ${oauthEmail}...`);
   };
 
   const handleEndActiveCall = async () => {
@@ -689,10 +820,17 @@ export default function ProfMeet() {
     activeCallRef.current = null;
     setActiveCall(null);
 
+    // Capture the end time now so the verification wait is not counted in the duration
+    const endedAtMs = Date.now();
+
     try {
       // Check if we can capture the final real room code before destroying window
       let realCode = currentCall.code;
-      if (!realCode || realCode === "Connecting..." || !realCode.includes("-")) {
+      if (
+        !realCode ||
+        realCode === "Connecting..." ||
+        !realCode.includes("-")
+      ) {
         try {
           const detected = await invoke<string | null>("get_in_app_meet_code");
           if (detected) {
@@ -708,7 +846,9 @@ export default function ProfMeet() {
       // Retrieve full captured transcript from Tauri backend
       let finalTranscript: { who: string; text: string; t: string }[] = [];
       try {
-        finalTranscript = await invoke<{ who: string; text: string; t: string }[]>("get_in_app_meet_transcript");
+        finalTranscript = await invoke<
+          { who: string; text: string; t: string }[]
+        >("get_in_app_meet_transcript");
       } catch {
         finalTranscript = liveTranscriptRef.current;
       }
@@ -717,7 +857,9 @@ export default function ProfMeet() {
       }
 
       const participants = Array.from(
-        new Set([oauthName, ...finalTranscript.map((t) => t.who)].filter(Boolean))
+        new Set(
+          [oauthName, ...finalTranscript.map((t) => t.who)].filter(Boolean),
+        ),
       );
       const transcriptSource = finalTranscript
         .map((t) => `${t.t} - ${t.who}: ${t.text}`)
@@ -726,7 +868,6 @@ export default function ProfMeet() {
         ? transcriptSource.split(/\s+/).filter(Boolean).length
         : 0;
 
-      const endedAtMs = Date.now();
       const durationSeconds = currentCall.elapsedSeconds;
       const durationMinutes = Math.max(1, Math.ceil(durationSeconds / 60));
       const startedAtDate = new Date(currentCall.startedAt);
@@ -735,24 +876,31 @@ export default function ProfMeet() {
       const realUrl = buildMeetUrl(realCode, oauthEmail);
 
       // Parse course & section info for Teaching Load autofill
-      const rawCourse = currentCall.course || instantCourse || "CC 105 · BSIT 2B";
+      const rawCourse =
+        currentCall.course || instantCourse || "CC 105 · BSIT 2B";
       const parsedCourse = parseCourseString(rawCourse, availableCourses);
       const meetingDay = getDayAbbrev(startedAtDate);
       const meetingTime = `${formatTime12(startedAtDate)} – ${formatTime12(endedAtDate)}`;
       const meetingDateStr = startedAtDate.toISOString().split("T")[0];
       const autofillTopic =
-        currentCall.title && !currentCall.title.startsWith("Instant Class") && !currentCall.title.startsWith("Meeting (")
+        currentCall.title &&
+        !currentCall.title.startsWith("Instant Class") &&
+        !currentCall.title.startsWith("Meeting (")
           ? currentCall.title
           : `${parsedCourse.courseCode} Online Class Lecture & Discussion`;
       const autofillTask = `Online Lecture and Class Discussion via Google Meet (Room: ${realCode}, Duration: ${durationMinutes}m)`;
 
-      console.log("\n================== [ARIS FRONTEND] 🏁 SAVING MEETING & QUEUING TEACHING LOAD ==================");
+      console.log(
+        "\n================== [ARIS FRONTEND] 🏁 SAVING MEETING & QUEUING TEACHING LOAD ==================",
+      );
       console.log("Meeting Code:", realCode);
       console.log("Allocated Course:", parsedCourse);
       console.log("Held Date:", meetingDateStr);
       console.log("Meeting Time:", meetingTime);
       console.log("Total Transcript Lines:", finalTranscript.length);
-      console.log("============================================================================================\n");
+      console.log(
+        "============================================================================================\n",
+      );
 
       // Auto-queue teaching load autofill for Submit page
       queueMeetTeachingLoadAutofill({
@@ -773,9 +921,11 @@ export default function ProfMeet() {
         createdAt: new Date().toISOString(),
       });
 
-      // Save directly to backend database (meeting_records & meeting_logs)
+      // Save to backend first (auth_out is attached afterwards) so the record
+      // exists even if verification is skipped or the app closes mid-scan.
+      let savedId: string | undefined;
       try {
-        await saveMeetingToDb({
+        const saved = await saveMeetingToDb({
           title: currentCall.title,
           name: currentCall.title,
           course: `${parsedCourse.courseCode} · ${parsedCourse.section}`,
@@ -796,19 +946,60 @@ export default function ProfMeet() {
           transcript_source: transcriptSource || undefined,
           participants: participants.length > 0 ? participants : undefined,
           word_count: wordCount > 0 ? wordCount : undefined,
+          auth_in: currentCall.authIn,
         });
+        savedId = saved?.id;
       } catch (err) {
         console.warn("DB save meeting failed:", err);
       }
 
-      // Refresh clean, real meetings list directly from the database
       await loadDbMeetings();
+
+      // Time-out verification. Skipping leaves auth_out empty; the history row
+      // then shows a "Verify Time Out" fail-safe button.
+      let timedOut = false;
+      if (savedId && currentCall.authIn) {
+        const authOut = await requestVerify("out");
+        if (authOut) {
+          try {
+            await updateMeetingAuthOut(savedId);
+            timedOut = true;
+          } catch (err) {
+            console.warn("auth_out save failed:", err);
+          }
+          await loadDbMeetings();
+        }
+      }
+
       setToastMessage(
-        `Call ended (${realCode}). Auto-added ${parsedCourse.courseCode} to Teaching Load on Submit page!`
+        timedOut
+          ? `Call ended (${realCode}). Time out verified.`
+          : currentCall.authIn
+            ? `Call ended (${realCode}). Time out not verified, use "Verify Time Out" in Meeting History.`
+            : `Call ended (${realCode}). Auto-added ${parsedCourse.courseCode} to Teaching Load on Submit page!`,
       );
     } finally {
       isEndingCallRef.current = false;
     }
+  };
+
+  // Fail-safe: verify time out from a history row
+  const handleVerifyTimeOut = async (session: MeetSession) => {
+    if (verify.open || activeCallRef.current) return;
+    if (!authConnected) {
+      setToastMessage("Connect your authenticator first to verify time out.");
+      return;
+    }
+    const authOut = await requestVerify("out");
+    if (!authOut) return;
+    try {
+      await updateMeetingAuthOut(session.id);
+      setToastMessage("Time out verified.");
+    } catch (err) {
+      console.warn("auth_out save failed:", err);
+      setToastMessage("Could not save time out. Try again.");
+    }
+    await loadDbMeetings();
   };
 
   // Automatically end the active session in ARIS when Google Meet window is closed or call ends
@@ -892,12 +1083,14 @@ export default function ProfMeet() {
     setSchedTitle("");
     setSchedNotes("");
     setSchedCustomCode("");
-    setToastMessage(`Scheduled "${newSession.title}" (code: ${code}) and saved to database!`);
+    setToastMessage(
+      `Scheduled "${newSession.title}" (code: ${code}) and saved to database!`,
+    );
   };
 
   /* Filtered Meetings */
   const upcomingMeetings = meetings.filter(
-    (m) => m.status === "Upcoming" || m.status === "In Progress"
+    (m) => m.status === "Upcoming" || m.status === "In Progress",
   );
   const completedMeetings = meetings.filter((m) => m.status === "Completed");
   const filteredHistory = completedMeetings.filter((meeting) => {
@@ -909,7 +1102,10 @@ export default function ProfMeet() {
       .includes(query);
   });
   const historyPageCount = Math.max(1, Math.ceil(filteredHistory.length / 5));
-  const paginatedHistory = filteredHistory.slice((historyPage - 1) * 5, historyPage * 5);
+  const paginatedHistory = filteredHistory.slice(
+    (historyPage - 1) * 5,
+    historyPage * 5,
+  );
 
   return (
     <div className="pb-6">
@@ -927,40 +1123,6 @@ export default function ProfMeet() {
         subtitle="Host consultations, lectures, and departmental meetings directly on ARIS."
       />
 
-      {/* Captured Google OAuth Account Banner */}
-      <div className="hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f0f7f2] border border-[#d2e7d8] flex-shrink-0">
-              <svg className="w-6 h-6" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-              </svg>
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-[13.5px] font-bold text-[#111c14]">
-                  Google Account: {oauthName}
-                </span>
-                <Badge tone="green" dot>
-                  OAuth Captured
-                </Badge>
-              </div>
-              <p className="text-[12px] text-[#5a6b5e]">
-                Connected Email: <strong className="text-[#111c14] font-semibold">{oauthEmail}</strong>. Google Meet automatically uses this account.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-[12px] font-medium text-[#2d633e] bg-[#f0f7f2] px-3.5 py-1.5 rounded-xl border border-[#d2e7d8]">
-            <ShieldCheck className="h-4 w-4 text-[#3a7d4e]" />
-            <span>authuser={oauthEmail}</span>
-          </div>
-        </div>
-      </div>
-
       {/* Active In-App Meeting Screen */}
       {activeCall && (
         <div className="mb-6 rounded-3xl bg-white p-5 border border-[#dce3df] shadow-md">
@@ -973,17 +1135,32 @@ export default function ProfMeet() {
               </span>
               <div>
                 <div className="flex items-center gap-2">
-                  <p className="text-[15px] font-bold" style={{ color: "#111c14" }}>
+                  <p
+                    className="text-[15px] font-bold"
+                    style={{ color: "#111c14" }}
+                  >
                     {activeCall.title}
                   </p>
                   <span className="rounded-full bg-[#f0f7f2] px-2 py-0.5 text-[11px] font-mono font-semibold text-[#3a7d4e] border border-[#d2e7d8]">
                     {activeCall.code}
                   </span>
+                  {activeCall.authIn && (
+                    <span className="flex items-center gap-1 rounded-full bg-[#f0f7f2] px-2 py-0.5 text-[11px] font-semibold text-[#3a7d4e] border border-[#d2e7d8]">
+                      <Fingerprint className="h-3 w-3" />
+                      Fingerprint verified
+                    </span>
+                  )}
                 </div>
                 <p className="text-[12px]" style={{ color: "#8fa394" }}>
                   Active Meeting on ARIS App · Host:{" "}
-                  <span className="font-semibold text-[#3a7d4e]">{oauthEmail}</span> · Duration:{" "}
-                  <span className="font-mono font-semibold" style={{ color: "#111c14" }}>
+                  <span className="font-semibold text-[#3a7d4e]">
+                    {oauthEmail}
+                  </span>{" "}
+                  · Duration:{" "}
+                  <span
+                    className="font-mono font-semibold"
+                    style={{ color: "#111c14" }}
+                  >
                     {formatDuration(activeCall.elapsedSeconds)}
                   </span>
                 </p>
@@ -996,7 +1173,7 @@ export default function ProfMeet() {
                 onClick={() =>
                   copyToClipboard(
                     `Join Prof. ${oauthName}'s Google Meet: ${activeCall.url}`,
-                    "Meeting Link"
+                    "Meeting Link",
                   )
                 }
                 className="flex items-center gap-1.5 rounded-xl border border-[#e2e8e4] bg-[#f7f9f8] px-3 py-1.5 text-[12.5px] font-medium text-[#3d4a41] hover:bg-[#eef1ef] transition"
@@ -1015,7 +1192,7 @@ export default function ProfMeet() {
                   void openInAppMeet(
                     activeCall.url,
                     `ARIS Google Meet — ${oauthName} (${oauthEmail})`,
-                    oauthName
+                    oauthName,
                   )
                 }
                 className="flex items-center gap-1.5 rounded-xl border border-[#d2e7d8] bg-[#f0f7f2] px-3 py-1.5 text-[12.5px] font-medium text-[#3a7d4e] hover:bg-[#e3f0e6] transition"
@@ -1044,11 +1221,10 @@ export default function ProfMeet() {
                   <span className="h-2 w-2 rounded-full bg-[#4cd964] animate-pulse"></span>
                   ARIS In-App Window Running
                 </span>
-                <h3 className="text-[18px] font-bold">
-                  {activeCall.title}
-                </h3>
+                <h3 className="text-[18px] font-bold">{activeCall.title}</h3>
                 <p className="text-[13px] text-[#8fa394] mt-1">
-                  Google Meet is running in its dedicated desktop window under <strong>{oauthEmail}</strong>.
+                  Google Meet is running in its dedicated desktop window under{" "}
+                  <strong>{oauthEmail}</strong>.
                 </p>
                 <p className="text-[12px] text-[#a3d9b1] font-mono mt-1">
                   {activeCall.url}
@@ -1061,17 +1237,22 @@ export default function ProfMeet() {
                       <span className="h-2 w-2 rounded-full bg-[#4cd964] animate-pulse" />
                       Live Meet Transcript ({liveTranscript.length} captured)
                     </span>
-                    <span className="text-[10.5px] text-[#71967c]">Google Meet CC</span>
+                    <span className="text-[10.5px] text-[#71967c]">
+                      Google Meet CC
+                    </span>
                   </div>
                   {liveTranscript.length === 0 ? (
                     <p className="text-[11.5px] text-[#71967c] italic">
-                      Waiting for speech... Closed captions will automatically appear here as participants talk.
+                      Waiting for speech... Closed captions will automatically
+                      appear here as participants talk.
                     </p>
                   ) : (
                     <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-[11px] text-[#e0f1e8] pr-1">
                       {liveTranscript.slice(-4).map((chunk, idx) => (
                         <div key={idx} className="leading-snug">
-                          <span className="text-[#a3d9b1] font-semibold">{chunk.who}:</span>{" "}
+                          <span className="text-[#a3d9b1] font-semibold">
+                            {chunk.who}:
+                          </span>{" "}
                           <span>{chunk.text}</span>
                         </div>
                       ))}
@@ -1087,7 +1268,7 @@ export default function ProfMeet() {
                     void openInAppMeet(
                       activeCall.url,
                       `ARIS Google Meet — ${oauthName} (${oauthEmail})`,
-                      oauthName
+                      oauthName,
                     )
                   }
                   className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-[13px] font-semibold text-[#0d1a10] transition hover:bg-[#eef1ef]"
@@ -1104,356 +1285,525 @@ export default function ProfMeet() {
       {/* 3-Way Action Columns */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
         <div className="min-w-0">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 mb-5">
-        {/* Card 1: Start Instant Meeting */}
-        <Card className="flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-2xl"
-                style={{ background: "#eaf4ee" }}
-              >
-                <Video className="h-5 w-5" style={{ color: BRAND }} />
-              </div>
-              <Badge tone="green" dot>
-                OAuth Linked
-              </Badge>
-            </div>
-            <h3 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>
-              Start Instant Meeting
-            </h3>
-            <p className="text-[12.5px] mt-1 leading-relaxed" style={{ color: "#8fa394" }}>
-              Launch an instant meeting room inside ARIS using your OAuth account (
-              <span className="font-semibold text-[#3a7d4e]">{oauthEmail}</span>).
-            </p>
-
-            <div className="mt-3">
-              <label className="block text-[10.5px] font-bold text-[#5a6b5e] uppercase tracking-wider mb-1">
-                Course for Teaching Load:
-              </label>
-              <select
-                value={instantCourse}
-                onChange={(e) => setInstantCourse(e.target.value)}
-                className="w-full h-8 rounded-lg border border-[#d2e7d8] bg-[#f9fbf9] px-2 text-[12px] font-semibold text-[#111c14] outline-none focus:border-[#3a7d4e]"
-              >
-                {availableCourses.map((c) => (
-                  <option key={c.code} value={`${c.code} · ${c.title}`}>
-                    {c.code} — {c.title}
-                  </option>
-                ))}
-                {!availableCourses.some((c) => c.code === "CC 105") && (
-                  <option value="CC 105 · BSIT 2B">CC 105 · BSIT 2B (Information Management)</option>
-                )}
-                {!availableCourses.some((c) => c.code === "CC 116") && (
-                  <option value="CC 116 · BSCS 3-B">CC 116 · BSCS 3-B (Advanced Web Systems)</option>
-                )}
-                <option value="Faculty Council">Faculty / Department Consultation</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-[#f0f2f0] flex flex-col gap-2">
-            <PrimaryButton onClick={handleStartInstant}>
-              <Video className="h-4 w-4" />
-              Launch Meet
-            </PrimaryButton>
-            <button
-              type="button"
-              onClick={() => {
-                const code = generateRandomCode();
-                void copyToClipboard(
-                  buildMeetUrl(code, oauthEmail),
-                  "New Meeting Link"
-                );
-              }}
-              className="flex items-center justify-center gap-1.5 py-1 text-[12px] font-medium text-[#5a6b5e] hover:text-[#111c14] transition"
-            >
-              <LinkIcon className="h-3.5 w-3.5" />
-              Generate & Copy Link for Later
-            </button>
-          </div>
-        </Card>
-
-        {/* Card 2: Join Meeting with Code */}
-        <Card className="flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-2xl"
-                style={{ background: "#e7f1fa" }}
-              >
-                <Radio className="h-5 w-5" style={{ color: "#2b6ca3" }} />
-              </div>
-              <Badge tone="blue">Join Existing</Badge>
-            </div>
-            <h3 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>
-              Join with Code or Link
-            </h3>
-            <p className="text-[12.5px] mt-1 leading-relaxed" style={{ color: "#8fa394" }}>
-              Paste a Google Meet code or link. ARIS joins the meeting directly using{" "}
-              <span className="font-semibold text-[#2b6ca3]">{oauthEmail}</span>.
-            </p>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-[#f0f2f0] space-y-2">
-            <div className="flex min-h-11 items-center rounded-xl border border-[#e2e8e4] bg-white px-3 py-2">
-              <input
-                type="text"
-                value={joinInput}
-                onChange={(e) => setJoinInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleJoinWithCode();
-                }}
-                placeholder="e.g. abc-defg-hij"
-                className="w-full bg-transparent text-[13px] outline-none placeholder:text-[#8fa394]"
-                style={{ color: "#111c14" }}
-              />
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const text = await navigator.clipboard.readText();
-                    setJoinInput(text);
-                  } catch {
-                    // ignore
-                  }
-                }}
-                title="Paste from clipboard"
-                className="text-[11px] font-medium text-[#8fa394] hover:text-[#111c14] px-1"
-              >
-                Paste
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleJoinWithCode()}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-medium transition-colors hover:bg-[#f7f9f8]"
-              style={{ borderColor: "#e2e8e4", color: "#3d4a41" }}
-            >
-              <PhoneCall className="h-4 w-4 text-[#3a7d4e]" />
-              Join on ARIS
-            </button>
-          </div>
-        </Card>
-
-        {/* Card 3: Schedule Class Session */}
-        <Card className="flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-2xl"
-                style={{ background: "#fbf1de" }}
-              >
-                <Calendar className="h-5 w-5" style={{ color: "#996515" }} />
-              </div>
-              <Badge tone="amber">Class & Advisory</Badge>
-            </div>
-            <h3 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>
-              Schedule Session
-            </h3>
-            <p className="text-[12.5px] mt-1 leading-relaxed" style={{ color: "#8fa394" }}>
-              Plan upcoming consultations or classes with an auto-generated Google Meet URL tied to your account.
-            </p>
-          </div>
-
-          <div className="mt-4 flex justify-center border-t border-[#f0f2f0] pt-3">
-            <PrimaryButton onClick={() => setIsScheduleOpen(true)}>
-              <Plus className="h-4 w-4" />
-              Schedule Class Session
-            </PrimaryButton>
-          </div>
-        </Card>
-      </div>
-
-      {/* Interactive Camera & Microphone Pre-Call Tester */}
-      <Card className="mb-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>
-                Pre-Call Audio & Video Check
-              </h3>
-              <Badge tone={isAvTesting ? "green" : "gray"} dot={isAvTesting}>
-                {isAvTesting ? "Hardware Active" : "Standby"}
-              </Badge>
-            </div>
-            <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
-              Check your lighting, webcam frame, and microphone sensitivity right inside ARIS before students enter.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {!isAvTesting ? (
-              <GhostButton onClick={startAvTest} className="min-w-[220px] justify-center whitespace-nowrap">
-                <Video className="w-4 h-4 text-[#3a7d4e]" />
-                Test Camera & Microphone
-              </GhostButton>
-            ) : (
-              <GhostButton onClick={stopAvTest}>
-                <VideoOff className="w-4 h-4 text-[#c0392b]" />
-                Stop AV Test
-              </GhostButton>
-            )}
-          </div>
-        </div>
-
-        {avError && (
-          <div className="mb-3 rounded-xl bg-red-50 p-3 text-[12px] text-red-700 border border-red-200">
-            {avError}. Please verify camera and microphone permissions in Windows settings.
-          </div>
-        )}
-
-        {isAvTesting ? (
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4 items-center pt-2">
-            {/* Live Video Preview Box */}
-            <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black border border-[#dce3df] shadow-inner">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className={`h-full w-full object-cover ${cameraOn ? "" : "hidden"}`}
-              />
-              {!cameraOn && (
-                <div className="flex h-full w-full flex-col items-center justify-center text-white/70">
-                  <VideoOff className="h-10 w-10 mb-2 opacity-50" />
-                  <p className="text-[13px] font-medium">Camera is turned off</p>
-                </div>
-              )}
-
-              {/* Video Overlay Badges */}
-              <div className="absolute top-3 left-3 flex items-center gap-2">
-                <span className="flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
-                  <span className="h-2 w-2 rounded-full bg-[#4cd964] animate-pulse"></span>
-                  Live Preview
-                </span>
-              </div>
-
-              {/* In-Preview Controls */}
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 backdrop-blur-md">
-                <button
-                  type="button"
-                  onClick={toggleCamera}
-                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
-                    cameraOn
-                      ? "bg-white/20 text-white hover:bg-white/30"
-                      : "bg-[#c0392b] text-white"
-                  }`}
-                  title={cameraOn ? "Turn off camera" : "Turn on camera"}
-                >
-                  {cameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={toggleMic}
-                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
-                    micOn
-                      ? "bg-white/20 text-white hover:bg-white/30"
-                      : "bg-[#c0392b] text-white"
-                  }`}
-                  title={micOn ? "Mute microphone" : "Unmute microphone"}
-                >
-                  {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Audio & Readiness Panel */}
-            <div className="space-y-4 p-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 mb-5">
+            {/* Card 1: Start Instant Meeting */}
+            <Card className="flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between text-[12.5px] mb-1.5">
-                  <span className="font-semibold" style={{ color: "#111c14" }}>
-                    Microphone Input Volume
-                  </span>
-                  <span className="font-mono text-[11px]" style={{ color: "#8fa394" }}>
-                    {micOn ? `${audioLevel}%` : "Muted"}
-                  </span>
-                </div>
-                <div className="h-3 w-full overflow-hidden rounded-full bg-[#eef1ef]">
+                <div className="flex items-center justify-between mb-3">
                   <div
-                    className="h-full transition-all duration-75 rounded-full"
-                    style={{
-                      width: `${micOn ? audioLevel : 0}%`,
-                      background:
-                        audioLevel > 70
-                          ? "#d99a2b"
-                          : audioLevel > 20
-                          ? BRAND
-                          : "#8fa394",
-                    }}
-                  />
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                    style={{ background: "#eaf4ee" }}
+                  >
+                    <Video className="h-5 w-5" style={{ color: BRAND }} />
+                  </div>
+                  <Badge tone="green" dot>
+                    OAuth Linked
+                  </Badge>
                 </div>
-                <p className="text-[11px] mt-1" style={{ color: "#8fa394" }}>
-                  Speak normally to test audio pick-up. Green indicates optimal input.
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-[#f7f9f8] p-3.5 border border-[#e2e8e4] space-y-2 text-[12px]">
-                <div className="flex items-center justify-between">
-                  <span style={{ color: "#5a6b5e" }}>Webcam Sensor:</span>
-                  <span className="font-semibold" style={{ color: cameraOn ? BRAND : "#c0392b" }}>
-                    {cameraOn ? "Connected (OK)" : "Disabled"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span style={{ color: "#5a6b5e" }}>Microphone Stream:</span>
-                  <span className="font-semibold" style={{ color: micOn ? BRAND : "#c0392b" }}>
-                    {micOn ? "Active (Receiving)" : "Muted"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span style={{ color: "#5a6b5e" }}>OAuth Account:</span>
-                  <span className="font-semibold truncate max-w-[170px]" style={{ color: BRAND }}>
+                <h3
+                  className="text-[15px] font-semibold"
+                  style={{ color: "#111c14" }}
+                >
+                  Start Instant Meeting
+                </h3>
+                <p
+                  className="text-[12.5px] mt-1 leading-relaxed"
+                  style={{ color: "#8fa394" }}
+                >
+                  Launch an instant meeting room inside ARIS using your OAuth
+                  account (
+                  <span className="font-semibold text-[#3a7d4e]">
                     {oauthEmail}
                   </span>
+                  ). Fingerprint verification is required.
+                </p>
+
+                <div className="mt-3">
+                  <label className="block text-[10.5px] font-bold text-[#5a6b5e] uppercase tracking-wider mb-1">
+                    Course for Teaching Load:
+                  </label>
+                  <select
+                    value={instantCourse}
+                    onChange={(e) => setInstantCourse(e.target.value)}
+                    className="w-full h-8 rounded-lg border border-[#d2e7d8] bg-[#f9fbf9] px-2 text-[12px] font-semibold text-[#111c14] outline-none focus:border-[#3a7d4e]"
+                  >
+                    {availableCourses.map((c) => (
+                      <option key={c.code} value={`${c.code} · ${c.title}`}>
+                        {c.code} — {c.title}
+                      </option>
+                    ))}
+                    {!availableCourses.some((c) => c.code === "CC 105") && (
+                      <option value="CC 105 · BSIT 2B">
+                        CC 105 · BSIT 2B (Information Management)
+                      </option>
+                    )}
+                    {!availableCourses.some((c) => c.code === "CC 116") && (
+                      <option value="CC 116 · BSCS 3-B">
+                        CC 116 · BSCS 3-B (Advanced Web Systems)
+                      </option>
+                    )}
+                    <option value="Faculty Council">
+                      Faculty / Department Consultation
+                    </option>
+                  </select>
+                </div>
+
+                {/* Authenticator connection */}
+                <div className="mt-3 rounded-xl border border-[#d2e7d8] bg-[#f9fbf9] p-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-[10.5px] font-bold text-[#5a6b5e] uppercase tracking-wider">
+                      <Usb className="h-3.5 w-3.5" />
+                      Authenticator
+                    </span>
+                    <Badge
+                      tone={authConnected ? "green" : "gray"}
+                      dot={authConnected}
+                    >
+                      {auth.connecting
+                        ? "Connecting"
+                        : authConnected
+                          ? (authStatus.device?.deviceId ?? "Connected")
+                          : "Not connected"}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={authPort}
+                      onChange={(e) => setAuthPort(e.target.value)}
+                      disabled={authStatus.connected}
+                      className="h-8 min-w-0 flex-1 rounded-lg border border-[#d2e7d8] bg-white px-2 text-[12px] text-[#111c14] outline-none focus:border-[#3a7d4e] disabled:opacity-60"
+                    >
+                      <option value="">
+                        {auth.ports.length
+                          ? "Select a COM port"
+                          : "No devices detected"}
+                      </option>
+                      {auth.ports.map((p) => (
+                        <option key={p.name} value={p.name}>
+                          {p.name}
+                          {p.product ? ` — ${p.product}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void auth.refreshPorts()}
+                      disabled={authStatus.connected}
+                      title="Refresh ports"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#d2e7d8] bg-white text-[#3a7d4e] hover:bg-[#f0f7f2] disabled:opacity-50"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {authStatus.connected ? (
+                    <button
+                      type="button"
+                      onClick={() => void auth.disconnect()}
+                      disabled={verify.open}
+                      className="h-8 w-full rounded-lg border border-[#e2e8e4] bg-white text-[12px] font-medium text-[#3d4a41] hover:bg-[#f7f9f8] disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void auth.connect(authPort)}
+                      disabled={!authPort || auth.connecting}
+                      className="h-8 w-full rounded-lg bg-[#3a7d4e] text-[12px] font-semibold text-white hover:bg-[#2d633e] disabled:opacity-50"
+                    >
+                      {auth.connecting ? "Connecting…" : "Connect"}
+                    </button>
+                  )}
+                  {auth.error && (
+                    <p className="text-[11px] text-red-600">
+                      {auth.error.message}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 pt-1">
+              <div className="mt-4 pt-3 border-t border-[#f0f2f0] flex flex-col gap-2">
                 <PrimaryButton onClick={handleStartInstant}>
-                  <Video className="w-4 h-4" />
-                  Launch Meet Now
+                  <Fingerprint className="h-4 w-4" />
+                  Verify &amp; Launch Meet
                 </PrimaryButton>
-                <GhostButton onClick={stopAvTest}>Done Checking</GhostButton>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const code = generateRandomCode();
+                    void copyToClipboard(
+                      buildMeetUrl(code, oauthEmail),
+                      "New Meeting Link",
+                    );
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-1 text-[12px] font-medium text-[#5a6b5e] hover:text-[#111c14] transition"
+                >
+                  <LinkIcon className="h-3.5 w-3.5" />
+                  Generate & Copy Link for Later
+                </button>
               </div>
-            </div>
-          </div>
-        ) : (
-          <div
-            className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl p-4 cursor-pointer transition hover:bg-[#f7f9f8] border border-dashed border-[#dce3df]"
-            onClick={startAvTest}
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                style={{ background: "#f0f7f2" }}
-              >
-                <Video className="h-5 w-5" style={{ color: BRAND }} />
-              </div>
+            </Card>
+
+            {/* Card 2: Join Meeting with Code */}
+            <Card className="flex flex-col justify-between">
               <div>
-                <p className="text-[13px] font-semibold" style={{ color: "#111c14" }}>
-                  Click to preview your camera and microphone
+                <div className="flex items-center justify-between mb-3">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                    style={{ background: "#e7f1fa" }}
+                  >
+                    <Radio className="h-5 w-5" style={{ color: "#2b6ca3" }} />
+                  </div>
+                  <Badge tone="blue">Join Existing</Badge>
+                </div>
+                <h3
+                  className="text-[15px] font-semibold"
+                  style={{ color: "#111c14" }}
+                >
+                  Join with Code or Link
+                </h3>
+                <p
+                  className="text-[12.5px] mt-1 leading-relaxed"
+                  style={{ color: "#8fa394" }}
+                >
+                  Paste a Google Meet code or link. Fingerprint verification is
+                  required. ARIS joins the meeting directly using{" "}
+                  <span className="font-semibold text-[#2b6ca3]">
+                    {oauthEmail}
+                  </span>
+                  .
                 </p>
-                <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
-                  Test your video clarity and audio volume level before students enter the call.
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-[#f0f2f0] space-y-2">
+                <div className="flex min-h-11 items-center rounded-xl border border-[#e2e8e4] bg-white px-3 py-2">
+                  <input
+                    type="text"
+                    value={joinInput}
+                    onChange={(e) => setJoinInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleJoinWithCode();
+                    }}
+                    placeholder="e.g. abc-defg-hij"
+                    className="w-full bg-transparent text-[13px] outline-none placeholder:text-[#8fa394]"
+                    style={{ color: "#111c14" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        setJoinInput(text);
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    title="Paste from clipboard"
+                    className="text-[11px] font-medium text-[#8fa394] hover:text-[#111c14] px-1"
+                  >
+                    Paste
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleJoinWithCode()}
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-medium transition-colors hover:bg-[#f7f9f8]"
+                  style={{ borderColor: "#e2e8e4", color: "#3d4a41" }}
+                >
+                  <Fingerprint className="h-4 w-4 text-[#3a7d4e]" />
+                  Verify &amp; Join on ARIS
+                </button>
+              </div>
+            </Card>
+
+            {/* Card 3: Schedule Class Session */}
+            <Card className="flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                    style={{ background: "#fbf1de" }}
+                  >
+                    <Calendar
+                      className="h-5 w-5"
+                      style={{ color: "#996515" }}
+                    />
+                  </div>
+                  <Badge tone="amber">Class & Advisory</Badge>
+                </div>
+                <h3
+                  className="text-[15px] font-semibold"
+                  style={{ color: "#111c14" }}
+                >
+                  Schedule Session
+                </h3>
+                <p
+                  className="text-[12.5px] mt-1 leading-relaxed"
+                  style={{ color: "#8fa394" }}
+                >
+                  Plan upcoming consultations or classes with an auto-generated
+                  Google Meet URL tied to your account.
                 </p>
+              </div>
+
+              <div className="mt-4 flex justify-center border-t border-[#f0f2f0] pt-3">
+                <PrimaryButton onClick={() => setIsScheduleOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                  Schedule Class Session
+                </PrimaryButton>
+              </div>
+            </Card>
+          </div>
+
+          {/* Interactive Camera & Microphone Pre-Call Tester */}
+          <Card className="mb-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3
+                    className="text-[15px] font-semibold"
+                    style={{ color: "#111c14" }}
+                  >
+                    Pre-Call Audio & Video Check
+                  </h3>
+                  <Badge
+                    tone={isAvTesting ? "green" : "gray"}
+                    dot={isAvTesting}
+                  >
+                    {isAvTesting ? "Hardware Active" : "Standby"}
+                  </Badge>
+                </div>
+                <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
+                  Check your lighting, webcam frame, and microphone sensitivity
+                  right inside ARIS before students enter.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {!isAvTesting ? (
+                  <GhostButton
+                    onClick={startAvTest}
+                    className="min-w-[220px] justify-center whitespace-nowrap"
+                  >
+                    <Video className="w-4 h-4 text-[#3a7d4e]" />
+                    Test Camera & Microphone
+                  </GhostButton>
+                ) : (
+                  <GhostButton onClick={stopAvTest}>
+                    <VideoOff className="w-4 h-4 text-[#c0392b]" />
+                    Stop AV Test
+                  </GhostButton>
+                )}
               </div>
             </div>
 
-            <span className="text-[12.5px] font-semibold text-[#3a7d4e] flex items-center gap-1">
-              Start Test →
-            </span>
-          </div>
-        )}
-      </Card>
+            {avError && (
+              <div className="mb-3 rounded-xl bg-red-50 p-3 text-[12px] text-red-700 border border-red-200">
+                {avError}. Please verify camera and microphone permissions in
+                Windows settings.
+              </div>
+            )}
+
+            {isAvTesting ? (
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4 items-center pt-2">
+                {/* Live Video Preview Box */}
+                <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black border border-[#dce3df] shadow-inner">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`h-full w-full object-cover ${cameraOn ? "" : "hidden"}`}
+                  />
+                  {!cameraOn && (
+                    <div className="flex h-full w-full flex-col items-center justify-center text-white/70">
+                      <VideoOff className="h-10 w-10 mb-2 opacity-50" />
+                      <p className="text-[13px] font-medium">
+                        Camera is turned off
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Video Overlay Badges */}
+                  <div className="absolute top-3 left-3 flex items-center gap-2">
+                    <span className="flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+                      <span className="h-2 w-2 rounded-full bg-[#4cd964] animate-pulse"></span>
+                      Live Preview
+                    </span>
+                  </div>
+
+                  {/* In-Preview Controls */}
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 backdrop-blur-md">
+                    <button
+                      type="button"
+                      onClick={toggleCamera}
+                      className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
+                        cameraOn
+                          ? "bg-white/20 text-white hover:bg-white/30"
+                          : "bg-[#c0392b] text-white"
+                      }`}
+                      title={cameraOn ? "Turn off camera" : "Turn on camera"}
+                    >
+                      {cameraOn ? (
+                        <Video className="h-4 w-4" />
+                      ) : (
+                        <VideoOff className="h-4 w-4" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleMic}
+                      className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
+                        micOn
+                          ? "bg-white/20 text-white hover:bg-white/30"
+                          : "bg-[#c0392b] text-white"
+                      }`}
+                      title={micOn ? "Mute microphone" : "Unmute microphone"}
+                    >
+                      {micOn ? (
+                        <Mic className="h-4 w-4" />
+                      ) : (
+                        <MicOff className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Audio & Readiness Panel */}
+                <div className="space-y-4 p-2">
+                  <div>
+                    <div className="flex items-center justify-between text-[12.5px] mb-1.5">
+                      <span
+                        className="font-semibold"
+                        style={{ color: "#111c14" }}
+                      >
+                        Microphone Input Volume
+                      </span>
+                      <span
+                        className="font-mono text-[11px]"
+                        style={{ color: "#8fa394" }}
+                      >
+                        {micOn ? `${audioLevel}%` : "Muted"}
+                      </span>
+                    </div>
+                    <div className="h-3 w-full overflow-hidden rounded-full bg-[#eef1ef]">
+                      <div
+                        className="h-full transition-all duration-75 rounded-full"
+                        style={{
+                          width: `${micOn ? audioLevel : 0}%`,
+                          background:
+                            audioLevel > 70
+                              ? "#d99a2b"
+                              : audioLevel > 20
+                                ? BRAND
+                                : "#8fa394",
+                        }}
+                      />
+                    </div>
+                    <p
+                      className="text-[11px] mt-1"
+                      style={{ color: "#8fa394" }}
+                    >
+                      Speak normally to test audio pick-up. Green indicates
+                      optimal input.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-[#f7f9f8] p-3.5 border border-[#e2e8e4] space-y-2 text-[12px]">
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: "#5a6b5e" }}>Webcam Sensor:</span>
+                      <span
+                        className="font-semibold"
+                        style={{ color: cameraOn ? BRAND : "#c0392b" }}
+                      >
+                        {cameraOn ? "Connected (OK)" : "Disabled"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: "#5a6b5e" }}>
+                        Microphone Stream:
+                      </span>
+                      <span
+                        className="font-semibold"
+                        style={{ color: micOn ? BRAND : "#c0392b" }}
+                      >
+                        {micOn ? "Active (Receiving)" : "Muted"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: "#5a6b5e" }}>Authenticator:</span>
+                      <span
+                        className="font-semibold"
+                        style={{ color: authConnected ? BRAND : "#c0392b" }}
+                      >
+                        {authConnected ? "Connected" : "Not connected"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span style={{ color: "#5a6b5e" }}>OAuth Account:</span>
+                      <span
+                        className="font-semibold truncate max-w-[170px]"
+                        style={{ color: BRAND }}
+                      >
+                        {oauthEmail}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <PrimaryButton onClick={handleStartInstant}>
+                      <Fingerprint className="w-4 h-4" />
+                      Verify &amp; Launch Now
+                    </PrimaryButton>
+                    <GhostButton onClick={stopAvTest}>
+                      Done Checking
+                    </GhostButton>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl p-4 cursor-pointer transition hover:bg-[#f7f9f8] border border-dashed border-[#dce3df]"
+                onClick={startAvTest}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex h-11 w-11 items-center justify-center rounded-2xl"
+                    style={{ background: "#f0f7f2" }}
+                  >
+                    <Video className="h-5 w-5" style={{ color: BRAND }} />
+                  </div>
+                  <div>
+                    <p
+                      className="text-[13px] font-semibold"
+                      style={{ color: "#111c14" }}
+                    >
+                      Click to preview your camera and microphone
+                    </p>
+                    <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
+                      Test your video clarity and audio volume level before
+                      students enter the call.
+                    </p>
+                  </div>
+                </div>
+
+                <span className="text-[12.5px] font-semibold text-[#3a7d4e] flex items-center gap-1">
+                  Start Test →
+                </span>
+              </div>
+            )}
+          </Card>
         </div>
 
         <aside className="min-w-0">
           <Card className="h-full">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-[16px] font-semibold" style={{ color: "#111c14" }}>
+                <h2
+                  className="text-[16px] font-semibold"
+                  style={{ color: "#111c14" }}
+                >
                   Upcoming Meetings
                 </h2>
                 <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>
@@ -1465,7 +1815,10 @@ export default function ProfMeet() {
 
             {upcomingMeetings.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#dce3df] p-4 text-center">
-                <p className="text-[12.5px] font-semibold" style={{ color: "#111c14" }}>
+                <p
+                  className="text-[12.5px] font-semibold"
+                  style={{ color: "#111c14" }}
+                >
                   No upcoming meetings
                 </p>
                 <button
@@ -1487,11 +1840,18 @@ export default function ProfMeet() {
                       <p className="min-w-0 text-[13px] font-semibold text-[#111c14]">
                         {session.title}
                       </p>
-                      <Badge tone={session.status === "In Progress" ? "amber" : "green"} dot>
+                      <Badge
+                        tone={
+                          session.status === "In Progress" ? "amber" : "green"
+                        }
+                        dot
+                      >
                         {session.status}
                       </Badge>
                     </div>
-                    <p className="truncate text-[11.5px] text-[#5a6b5e]">{session.course}</p>
+                    <p className="truncate text-[11.5px] text-[#5a6b5e]">
+                      {session.course}
+                    </p>
                     <div className="mt-2 space-y-1 text-[11.5px] text-[#8fa394]">
                       <p className="flex items-center gap-1.5">
                         <Calendar className="h-3.5 w-3.5" />
@@ -1513,7 +1873,10 @@ export default function ProfMeet() {
       {/* Meetings Schedule Section */}
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-[16px] font-semibold" style={{ color: "#111c14" }}>
+          <h2
+            className="text-[16px] font-semibold"
+            style={{ color: "#111c14" }}
+          >
             Meeting History
           </h2>
           <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
@@ -1540,7 +1903,9 @@ export default function ProfMeet() {
             className="flex items-center gap-1.5 text-[12px] text-[#5a6b5e] hover:text-[#111c14] border border-[#e2e8e4] rounded-xl px-2.5 py-1.5 bg-white hover:bg-[#f7f9f8] transition disabled:opacity-50"
             title="Sync with PostgreSQL database"
           >
-            <RefreshCw className={`h-3.5 w-3.5 text-[#3a7d4e] ${isLoadingMeetings ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3.5 w-3.5 text-[#3a7d4e] ${isLoadingMeetings ? "animate-spin" : ""}`}
+            />
             <span>Sync DB</span>
           </button>
         </div>
@@ -1568,63 +1933,124 @@ export default function ProfMeet() {
         </Card>
       ) : (
         <>
-        <div className="overflow-x-auto rounded-2xl border border-[#dce3df] bg-white shadow-sm">
-          <table className="w-full min-w-[760px] text-left">
-            <thead className="bg-[#f7f9f8] text-[11px] uppercase tracking-wider text-[#5a6b5e]">
-              <tr>
-                <th className="px-4 py-3 font-bold">Meeting</th>
-                <th className="px-4 py-3 font-bold">Course</th>
-                <th className="px-4 py-3 font-bold">Date &amp; Time</th>
-                <th className="px-4 py-3 font-bold">Code</th>
-                <th className="px-4 py-3 text-right font-bold"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#eef1ef]">
-              {paginatedHistory.length === 0 ? (
+          <div className="overflow-x-auto rounded-2xl border border-[#dce3df] bg-white shadow-sm">
+            <table className="w-full min-w-[900px] text-left">
+              <thead className="bg-[#f7f9f8] text-[11px] uppercase tracking-wider text-[#5a6b5e]">
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-[13px] text-[#8fa394]">
-                    No meetings match your search.
-                  </td>
+                  <th className="px-4 py-3 font-bold">Meeting</th>
+                  <th className="px-4 py-3 font-bold">Course</th>
+                  <th className="px-4 py-3 font-bold">Date &amp; Time</th>
+                  <th className="px-4 py-3 font-bold">Code</th>
+                  <th className="px-4 py-3 font-bold">Verification</th>
+                  <th className="px-4 py-3 text-right font-bold"></th>
                 </tr>
-              ) : (
-                paginatedHistory.map((session) => (
-                  <tr key={session.id} className="text-[12.5px] text-[#111c14] transition hover:bg-[#fbfcfb]">
-                    <td className="px-4 py-3 font-semibold">{session.title}</td>
-                    <td className="px-4 py-3 text-[#5a6b5e]">{session.course}</td>
-                    <td className="px-4 py-3 text-[#5a6b5e]">
-                      <div>{session.date}</div>
-                      <div className="mt-0.5 text-[11.5px] text-[#8fa394]">
-                        {session.time} {session.duration ? `(${session.duration})` : ""}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11.5px] text-[#5a6b5e]">{session.code}</td>
-                    <td className="px-4 py-3 text-right">
-                      <PrimaryButton onClick={() => navigate("/prof/summaries")}>
-                        <Sparkles className="h-3.5 w-3.5" />
-                        View Summary
-                      </PrimaryButton>
+              </thead>
+              <tbody className="divide-y divide-[#eef1ef]">
+                {paginatedHistory.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-4 py-10 text-center text-[13px] text-[#8fa394]"
+                    >
+                      No meetings match your search.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-[12px] text-[#8fa394]">
-          <span>
-            Showing {filteredHistory.length === 0 ? 0 : (historyPage - 1) * 5 + 1}-
-            {Math.min(historyPage * 5, filteredHistory.length)} of {filteredHistory.length}
-          </span>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setHistoryPage((page) => Math.max(1, page - 1))} disabled={historyPage === 1} className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40">
-              Previous
-            </button>
-            <span className="font-medium text-[#5a6b5e]">Page {historyPage} of {historyPageCount}</span>
-            <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount, page + 1))} disabled={historyPage >= historyPageCount} className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40">
-              Next
-            </button>
+                ) : (
+                  paginatedHistory.map((session) => (
+                    <tr
+                      key={session.id}
+                      className="text-[12.5px] text-[#111c14] transition hover:bg-[#fbfcfb]"
+                    >
+                      <td className="px-4 py-3 font-semibold">
+                        {session.title}
+                      </td>
+                      <td className="px-4 py-3 text-[#5a6b5e]">
+                        {session.course}
+                      </td>
+                      <td className="px-4 py-3 text-[#5a6b5e]">
+                        <div>{session.date}</div>
+                        <div className="mt-0.5 text-[11.5px] text-[#8fa394]">
+                          {session.time}{" "}
+                          {session.duration ? `(${session.duration})` : ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[11.5px] text-[#5a6b5e]">
+                        {session.code}
+                      </td>
+                      <td className="px-4 py-3 text-[11.5px]">
+                        {session.authIn ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1 text-[#3a7d4e]">
+                              <Fingerprint className="h-3.5 w-3.5" />
+                              Time in verified
+                            </div>
+                            {session.authOut ? (
+                              <div className="flex items-center gap-1 text-[#3a7d4e]">
+                                <Fingerprint className="h-3.5 w-3.5" />
+                                Time out verified
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleVerifyTimeOut(session)
+                                }
+                                className="flex items-center gap-1 rounded-lg border border-[#d2e7d8] bg-[#f0f7f2] px-2 py-1 font-semibold text-[#3a7d4e] transition hover:bg-[#e3f0e6]"
+                              >
+                                <Fingerprint className="h-3.5 w-3.5" />
+                                Verify Time Out
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[#8fa394]">Not verified</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <PrimaryButton
+                          onClick={() => navigate("/prof/summaries")}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          View Summary
+                        </PrimaryButton>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        </div>
+          <div className="mt-3 flex items-center justify-between text-[12px] text-[#8fa394]">
+            <span>
+              Showing{" "}
+              {filteredHistory.length === 0 ? 0 : (historyPage - 1) * 5 + 1}-
+              {Math.min(historyPage * 5, filteredHistory.length)} of{" "}
+              {filteredHistory.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                disabled={historyPage === 1}
+                className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span className="font-medium text-[#5a6b5e]">
+                Page {historyPage} of {historyPageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setHistoryPage((page) => Math.min(historyPageCount, page + 1))
+                }
+                disabled={historyPage >= historyPageCount}
+                className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </>
       )}
 
@@ -1635,11 +2061,15 @@ export default function ProfMeet() {
             <Sparkles className="h-5 w-5" style={{ color: BRAND }} />
           </div>
           <div>
-            <p className="text-[13px] font-semibold" style={{ color: "#111c14" }}>
+            <p
+              className="text-[13px] font-semibold"
+              style={{ color: "#111c14" }}
+            >
               Automated Meeting Summaries & Transcripts
             </p>
             <p className="text-[12px]" style={{ color: "#5a6b5e" }}>
-              Google Meet recordings under {oauthEmail} are transcribed and summarized into Accomplishment Report items automatically.
+              Google Meet recordings under {oauthEmail} are transcribed and
+              summarized into Accomplishment Report items automatically.
             </p>
           </div>
         </div>
@@ -1652,6 +2082,61 @@ export default function ProfMeet() {
           Open Summaries →
         </button>
       </div>
+
+      {/* Fingerprint Verification Modal */}
+      <Modal
+        isOpen={verify.open}
+        onClose={cancelVerify}
+        title={
+          verify.purpose === "in" ? "Verify to Launch Meet" : "Verify Time Out"
+        }
+        actions={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <GhostButton onClick={cancelVerify}>
+              {verify.purpose === "in" ? "Cancel" : "Skip for now"}
+            </GhostButton>
+            {verify.phase === "failed" && (
+              <PrimaryButton onClick={() => void runScan()}>
+                <Fingerprint className="h-4 w-4" />
+                Try again
+              </PrimaryButton>
+            )}
+          </div>
+        }
+      >
+        <div className="flex flex-col items-center gap-3 py-4 text-center">
+          <div
+            className={`flex h-16 w-16 items-center justify-center rounded-full ${
+              verify.phase === "failed" ? "bg-red-50" : "bg-[#f0f7f2]"
+            }`}
+          >
+            <Fingerprint
+              className={`h-8 w-8 ${
+                verify.phase === "failed"
+                  ? "text-red-600"
+                  : verify.phase === "scanning"
+                    ? "animate-pulse text-[#3a7d4e]"
+                    : "text-[#3a7d4e]"
+              }`}
+            />
+          </div>
+          {verify.phase === "failed" ? (
+            <p className="text-[13px] text-red-700">{verify.error}</p>
+          ) : (
+            <p
+              className="text-[13px] font-semibold text-[#111c14]"
+              aria-live="polite"
+            >
+              Place your finger on the authenticator…
+            </p>
+          )}
+          <p className="text-[12px] text-[#8fa394]">
+            {verify.purpose === "in"
+              ? "Verification is required before the meeting can start."
+              : "The meeting has ended. Verify to record your time out. If you skip, you can verify later from Meeting History."}
+          </p>
+        </div>
+      </Modal>
 
       {/* Schedule Meeting Modal */}
       <Modal
@@ -1672,7 +2157,10 @@ export default function ProfMeet() {
       >
         <div className="space-y-4 text-left">
           <div>
-            <label className="block text-[12.5px] font-semibold mb-1" style={{ color: "#111c14" }}>
+            <label
+              className="block text-[12.5px] font-semibold mb-1"
+              style={{ color: "#111c14" }}
+            >
               Meeting Title / Topic
             </label>
             <input
@@ -1686,7 +2174,10 @@ export default function ProfMeet() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[12.5px] font-semibold mb-1" style={{ color: "#111c14" }}>
+              <label
+                className="block text-[12.5px] font-semibold mb-1"
+                style={{ color: "#111c14" }}
+              >
                 Course / Class Section
               </label>
               <select
@@ -1700,21 +2191,34 @@ export default function ProfMeet() {
                   </option>
                 ))}
                 {!availableCourses.some((c) => c.code === "CC 105") && (
-                  <option value="CC 105 · BSIT 2B">CC 105 · BSIT 2B (Information Management)</option>
+                  <option value="CC 105 · BSIT 2B">
+                    CC 105 · BSIT 2B (Information Management)
+                  </option>
                 )}
                 {!availableCourses.some((c) => c.code === "CS 201") && (
-                  <option value="CS 201 · BSCS 2A">CS 201 · BSCS 2A (Data Structures)</option>
+                  <option value="CS 201 · BSCS 2A">
+                    CS 201 · BSCS 2A (Data Structures)
+                  </option>
                 )}
                 {!availableCourses.some((c) => c.code === "IT 301") && (
-                  <option value="IT 301 · BSIT 3A">IT 301 · BSIT 3A (Web Development)</option>
+                  <option value="IT 301 · BSIT 3A">
+                    IT 301 · BSIT 3A (Web Development)
+                  </option>
                 )}
-                <option value="Faculty Council">Faculty / Department Consultation</option>
-                <option value="Thesis Defense">Capstone / Thesis Defense</option>
+                <option value="Faculty Council">
+                  Faculty / Department Consultation
+                </option>
+                <option value="Thesis Defense">
+                  Capstone / Thesis Defense
+                </option>
               </select>
             </div>
 
             <div>
-              <label className="block text-[12.5px] font-semibold mb-1" style={{ color: "#111c14" }}>
+              <label
+                className="block text-[12.5px] font-semibold mb-1"
+                style={{ color: "#111c14" }}
+              >
                 Date
               </label>
               <input
@@ -1728,7 +2232,10 @@ export default function ProfMeet() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[12.5px] font-semibold mb-1" style={{ color: "#111c14" }}>
+              <label
+                className="block text-[12.5px] font-semibold mb-1"
+                style={{ color: "#111c14" }}
+              >
                 Start Time
               </label>
               <input
@@ -1740,7 +2247,10 @@ export default function ProfMeet() {
             </div>
 
             <div>
-              <label className="block text-[12.5px] font-semibold mb-1" style={{ color: "#111c14" }}>
+              <label
+                className="block text-[12.5px] font-semibold mb-1"
+                style={{ color: "#111c14" }}
+              >
                 End Time
               </label>
               <input
@@ -1753,8 +2263,12 @@ export default function ProfMeet() {
           </div>
 
           <div>
-            <label className="block text-[12.5px] font-semibold mb-1" style={{ color: "#111c14" }}>
-              Google Meet Link or Code <span className="font-normal text-[#8fa394]">(Optional)</span>
+            <label
+              className="block text-[12.5px] font-semibold mb-1"
+              style={{ color: "#111c14" }}
+            >
+              Google Meet Link or Code{" "}
+              <span className="font-normal text-[#8fa394]">(Optional)</span>
             </label>
             <input
               type="text"
@@ -1769,7 +2283,10 @@ export default function ProfMeet() {
           </div>
 
           <div>
-            <label className="block text-[12.5px] font-semibold mb-1" style={{ color: "#111c14" }}>
+            <label
+              className="block text-[12.5px] font-semibold mb-1"
+              style={{ color: "#111c14" }}
+            >
               Agenda / Notes for Students
             </label>
             <textarea
@@ -1782,7 +2299,9 @@ export default function ProfMeet() {
           </div>
 
           <div className="rounded-xl bg-[#f0f7f2] p-3 text-[12px] text-[#2d633e] border border-[#d2e7d8]">
-            🔒 Hosted by <strong>{oauthEmail}</strong>. Google Meet room and calendar invite links will be automatically created under this account.
+            🔒 Hosted by <strong>{oauthEmail}</strong>. Google Meet room and
+            calendar invite links will be automatically created under this
+            account.
           </div>
         </div>
       </Modal>

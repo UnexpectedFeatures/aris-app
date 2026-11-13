@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react"
-import { useNavigate, useLocation } from "react-router"
-import { PageTitle } from "@/components/ui"
-import { useAuth } from "@/app/authContext"
-import { loadResource, saveResource } from "@/services/dataSource"
-import { supabase } from "@/services/supabase"
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate, useLocation } from "react-router";
+import { PageTitle } from "@/components/ui";
+import { useAuth } from "@/app/authContext";
+import { loadResource, saveResource } from "@/services/dataSource";
+import { supabase } from "@/services/supabase";
 import {
   getPendingMeetTeachingLoadAutofills,
   clearPendingMeetTeachingLoadAutofills,
@@ -12,50 +12,50 @@ import {
   getDayAbbrev,
   formatTime12,
   type MeetTeachingLoadAutofill,
-} from "@/services/meetAutofillService"
-import { fetchMeetingsFromDb } from "@/services/meetingService"
+} from "@/services/meetAutofillService";
+import { fetchMeetingsFromDb } from "@/services/meetingService";
 
 export type DbCourse = {
-  id: string
-  code: string
-  title: string
-  units: number
-  department_name?: string
-  description?: string
-}
+  id: string;
+  code: string;
+  title: string;
+  units: number;
+  department_name?: string;
+  description?: string;
+};
 
 export type ClassScheduleRow = {
-  id: string
-  code: string
-  section: string
-  units: number | string
-  days: string
-  time: string
-  campus: string
-}
+  id: string;
+  code: string;
+  section: string;
+  units: number | string;
+  days: string;
+  time: string;
+  campus: string;
+};
 
 export type CourseBlock = {
-  id: string
-  courseId?: string
-  code: string
-  title: string
-  units: number | string
-  datesHeld: string
-  topics: string
-  tasks: string
-  rows: ClassScheduleRow[]
-}
+  id: string;
+  courseId?: string;
+  code: string;
+  title: string;
+  units: number | string;
+  datesHeld: string;
+  topics: string;
+  tasks: string;
+  rows: ClassScheduleRow[];
+};
 
 type ClassRowDraft = {
-  code: string
-  section: string
-  campus: string
-  startTime: string
-  endTime: string
-  units: string
-  days: string[]
-  customDays: string
-}
+  code: string;
+  section: string;
+  campus: string;
+  startTime: string;
+  endTime: string;
+  units: string;
+  days: string[];
+  customDays: string;
+};
 
 const emptyClassRow: ClassRowDraft = {
   code: "",
@@ -66,7 +66,7 @@ const emptyClassRow: ClassRowDraft = {
   units: "5",
   days: ["MON", "THU"],
   customDays: "",
-}
+};
 
 const DAYS_OPTIONS = [
   { label: "MON", value: "MON" },
@@ -76,29 +76,29 @@ const DAYS_OPTIONS = [
   { label: "FRI", value: "FRI" },
   { label: "SAT", value: "SAT" },
   { label: "SUN", value: "SUN" },
-]
+];
 
 function formatTime(time: string) {
-  if (!time) return ""
-  if (time.includes("AM") || time.includes("PM")) return time
-  const [hourText, minute] = time.split(":")
-  const hour = Number(hourText)
-  if (!Number.isInteger(hour) || !minute) return time
-  const period = hour >= 12 ? "PM" : "AM"
-  const displayHour = hour % 12 || 12
-  return `${displayHour}:${minute} ${period}`
+  if (!time) return "";
+  if (time.includes("AM") || time.includes("PM")) return time;
+  const [hourText, minute] = time.split(":");
+  const hour = Number(hourText);
+  if (!Number.isInteger(hour) || !minute) return time;
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute} ${period}`;
 }
 
 function getHeldDates(value: string) {
   return value
     .split(",")
     .map((date) => date.trim())
-    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
 }
 
 function formatHeldDate(date: string) {
-  const [year, month, day] = date.split("-")
-  return `${month}/${day}/${year}`
+  const [year, month, day] = date.split("-");
+  return `${month}/${day}/${year}`;
 }
 
 /* ─── Shared Label ─────────────────────────────────────── */
@@ -110,11 +110,17 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
     >
       {children}
     </label>
-  )
+  );
 }
 
 /* ─── Section Card ──────────────────────────────────────── */
-function SectionCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function SectionCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <div
       className={`bg-white rounded-2xl border p-6 ${className}`}
@@ -125,7 +131,7 @@ function SectionCard({ children, className = "" }: { children: React.ReactNode; 
     >
       {children}
     </div>
-  )
+  );
 }
 
 /* ─── Section Header ────────────────────────────────────── */
@@ -136,11 +142,11 @@ function SectionHeader({
   extra,
   actions,
 }: {
-  num: string
-  title: string
-  subtitle?: string
-  extra?: React.ReactNode
-  actions?: React.ReactNode
+  num: string;
+  title: string;
+  subtitle?: string;
+  extra?: React.ReactNode;
+  actions?: React.ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between mb-5">
@@ -177,36 +183,35 @@ function SectionHeader({
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
-  )
+  );
 }
 
 const inputCls =
-  "w-full h-11 px-3.5 rounded-xl border text-[13.5px] font-medium outline-none transition-colors bg-[#fafbfa]"
-const inputStyle = { borderColor: "#e8eeea", color: "#111c14" }
-
+  "w-full h-11 px-3.5 rounded-xl border text-[13.5px] font-medium outline-none transition-colors bg-[#fafbfa]";
+const inputStyle = { borderColor: "#e8eeea", color: "#111c14" };
 
 export function parseTablesToCourseBlocks(
   tables?: any[],
   defaultTopics?: string,
-  defaultTasks?: string
+  defaultTasks?: string,
 ): CourseBlock[] {
   if (!tables || !Array.isArray(tables) || tables.length === 0) {
-    return []
+    return [];
   }
   return tables.map((tbl, idx) => {
-    const fullTitle = tbl.title || `Course ${idx + 1}`
-    let code = ""
-    let title = fullTitle
+    const fullTitle = tbl.title || `Course ${idx + 1}`;
+    let code = "";
+    let title = fullTitle;
     if (fullTitle.includes("—")) {
-      const parts = fullTitle.split("—")
-      code = parts[0].trim()
-      title = parts.slice(1).join("—").trim()
+      const parts = fullTitle.split("—");
+      code = parts[0].trim();
+      title = parts.slice(1).join("—").trim();
     } else if (fullTitle.includes(" - ")) {
-      const parts = fullTitle.split(" - ")
-      code = parts[0].trim()
-      title = parts.slice(1).join(" - ").trim()
+      const parts = fullTitle.split(" - ");
+      code = parts[0].trim();
+      title = parts.slice(1).join(" - ").trim();
     } else if (tbl.rows?.[0]?.[0]) {
-      code = String(tbl.rows[0][0]).trim()
+      code = String(tbl.rows[0][0]).trim();
     }
 
     const rows: ClassScheduleRow[] = Array.isArray(tbl.rows)
@@ -219,14 +224,15 @@ export function parseTablesToCourseBlocks(
           time: String(row[4] || "6:30 – 9:00 PM"),
           campus: String(row[5] || "CONGRESS"),
         }))
-      : []
+      : [];
 
     return {
       id: `course_rev_${idx}_${Date.now()}`,
       code: code || "CC 116",
       title: title || fullTitle,
       units: rows[0]?.units ?? 3,
-      datesHeld: tbl.datesHeld || tbl.meta || "2026-08-21,2026-08-23,2026-08-30",
+      datesHeld:
+        tbl.datesHeld || tbl.meta || "2026-08-21,2026-08-23,2026-08-30",
       topics: tbl.topics || defaultTopics || "",
       tasks: tbl.tasks || defaultTasks || "",
       rows:
@@ -243,47 +249,55 @@ export function parseTablesToCourseBlocks(
                 campus: "CONGRESS",
               },
             ],
-    }
-  })
+    };
+  });
 }
 
 export default function ProfSubmit() {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { user } = useAuth()
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
 
-  const reviseSubmission = (location.state as any)?.reviseSubmission
-  const [isRevision, setIsRevision] = useState<boolean>(Boolean(reviseSubmission))
+  const reviseSubmission = (location.state as any)?.reviseSubmission;
+  const [isRevision, setIsRevision] = useState<boolean>(
+    Boolean(reviseSubmission),
+  );
   const [revisionRef, setRevisionRef] = useState<string>(
-    reviseSubmission?.record?.reference || reviseSubmission?.id || ""
-  )
+    reviseSubmission?.record?.reference || reviseSubmission?.id || "",
+  );
   const [revisionReason, setRevisionReason] = useState<string>(
-    reviseSubmission?.record?.remark || reviseSubmission?.remark || ""
-  )
+    reviseSubmission?.record?.remark || reviseSubmission?.remark || "",
+  );
   const [revisionReviewer, setRevisionReviewer] = useState<string>(
-    reviseSubmission?.record?.reviewer || reviseSubmission?.stage || "Faculty Checker"
-  )
+    reviseSubmission?.record?.reviewer ||
+      reviseSubmission?.stage ||
+      "Faculty Checker",
+  );
 
   const [recordType, setRecordType] = useState(
-    reviseSubmission?.type === "DTR" ? "Daily Time Record (DTR)" : "Accomplishment Report (AR)"
-  )
+    reviseSubmission?.type === "DTR"
+      ? "Daily Time Record (DTR)"
+      : "Accomplishment Report (AR)",
+  );
   const [period, setPeriod] = useState(
-    reviseSubmission?.period || reviseSubmission?.record?.period || "September Cycle 1"
-  )
+    reviseSubmission?.period ||
+      reviseSubmission?.record?.period ||
+      "September Cycle 1",
+  );
   const [facultyName, setFacultyName] = useState(
-    reviseSubmission?.record?.facultyName || user.name.toUpperCase()
-  )
+    reviseSubmission?.record?.facultyName || user.name.toUpperCase(),
+  );
   const [facultyNumber, setFacultyNumber] = useState(
-    reviseSubmission?.record?.facultyNumber || ""
-  )
+    reviseSubmission?.record?.facultyNumber || "",
+  );
   const [college, setCollege] = useState(
-    reviseSubmission?.record?.college || "COLLEGE OF LIBERAL ARTS AND SCIENCES"
-  )
+    reviseSubmission?.record?.college || "COLLEGE OF LIBERAL ARTS AND SCIENCES",
+  );
 
   // Database courses state
-  const [availableCourses, setAvailableCourses] = useState<DbCourse[]>([])
-  const [loadingCourses, setLoadingCourses] = useState(true)
-  const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false)
+  const [availableCourses, setAvailableCourses] = useState<DbCourse[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
+  const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false);
 
   // Course blocks in report
   const initialCourses = useMemo(() => {
@@ -291,9 +305,9 @@ export default function ProfSubmit() {
       const parsed = parseTablesToCourseBlocks(
         reviseSubmission.record.tables,
         reviseSubmission.record.topics,
-        reviseSubmission.record.tasks
-      )
-      if (parsed.length > 0) return parsed
+        reviseSubmission.record.tasks,
+      );
+      if (parsed.length > 0) return parsed;
     }
     return [
       {
@@ -316,133 +330,149 @@ export default function ProfSubmit() {
           },
         ],
       },
-    ]
-  }, [reviseSubmission])
+    ];
+  }, [reviseSubmission]);
 
-  const [courses, setCourses] = useState<CourseBlock[]>(initialCourses)
+  const [courses, setCourses] = useState<CourseBlock[]>(initialCourses);
 
   useEffect(() => {
     if (reviseSubmission) {
-      setIsRevision(true)
-      setRevisionRef(reviseSubmission.record?.reference || reviseSubmission.id || "")
+      setIsRevision(true);
+      setRevisionRef(
+        reviseSubmission.record?.reference || reviseSubmission.id || "",
+      );
       setRevisionReason(
         reviseSubmission.record?.remark ||
           reviseSubmission.remark ||
-          "Returned for faculty correction. Please review entries and resubmit."
-      )
+          "Returned for faculty correction. Please review entries and resubmit.",
+      );
       setRevisionReviewer(
-        reviseSubmission.record?.reviewer || reviseSubmission.stage || "Faculty Checker"
-      )
+        reviseSubmission.record?.reviewer ||
+          reviseSubmission.stage ||
+          "Faculty Checker",
+      );
       if (reviseSubmission.type === "DTR") {
-        setRecordType("Daily Time Record (DTR)")
+        setRecordType("Daily Time Record (DTR)");
       } else {
-        setRecordType("Accomplishment Report (AR)")
+        setRecordType("Accomplishment Report (AR)");
       }
       if (reviseSubmission.period || reviseSubmission.record?.period) {
-        setPeriod(reviseSubmission.period || reviseSubmission.record?.period)
+        setPeriod(reviseSubmission.period || reviseSubmission.record?.period);
       }
       if (reviseSubmission.record?.facultyName) {
-        setFacultyName(reviseSubmission.record.facultyName)
+        setFacultyName(reviseSubmission.record.facultyName);
       }
       if (reviseSubmission.record?.facultyNumber) {
-        setFacultyNumber(reviseSubmission.record.facultyNumber)
+        setFacultyNumber(reviseSubmission.record.facultyNumber);
       }
       if (reviseSubmission.record?.college) {
-        setCollege(reviseSubmission.record.college)
+        setCollege(reviseSubmission.record.college);
       }
       if (reviseSubmission.record?.notes) {
-        const rawNotes = reviseSubmission.record.notes
+        const rawNotes = reviseSubmission.record.notes;
         if (!/disapprov|reject|returned/i.test(rawNotes)) {
-          setNotes(rawNotes)
+          setNotes(rawNotes);
         } else {
-          setNotes("")
+          setNotes("");
         }
       }
       if (
         reviseSubmission.record?.attachment &&
         reviseSubmission.record.attachment !== "None"
       ) {
-        setUploadedFile(reviseSubmission.record.attachment)
+        setUploadedFile(reviseSubmission.record.attachment);
       }
       const parsed = parseTablesToCourseBlocks(
         reviseSubmission.record?.tables,
         reviseSubmission.record?.topics,
-        reviseSubmission.record?.tasks
-      )
+        reviseSubmission.record?.tasks,
+      );
       if (parsed.length > 0) {
-        setCourses(parsed)
+        setCourses(parsed);
       }
     }
-  }, [reviseSubmission])
+  }, [reviseSubmission]);
 
   // Class modal state
-  const [classModalCourseId, setClassModalCourseId] = useState<string | null>(null)
-  const [classRowDraft, setClassRowDraft] = useState<ClassRowDraft>(emptyClassRow)
-  const [editingRowId, setEditingRowId] = useState<string | null>(null)
+  const [classModalCourseId, setClassModalCourseId] = useState<string | null>(
+    null,
+  );
+  const [classRowDraft, setClassRowDraft] =
+    useState<ClassRowDraft>(emptyClassRow);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
   // File & notes
-  const [notes, setNotes] = useState("")
-  const [uploadedFile, setUploadedFile] = useState<string | null>(null)
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [notes, setNotes] = useState("");
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Google Meet Auto-Fill state
   const [autofillBanner, setAutofillBanner] = useState<{
-    message: string
-    courseCode: string
-    details?: string
-  } | null>(null)
-  const [isSyncingMeet, setIsSyncingMeet] = useState(false)
+    message: string;
+    courseCode: string;
+    details?: string;
+  } | null>(null);
+  const [isSyncingMeet, setIsSyncingMeet] = useState(false);
 
   // Core handler to apply autofilled info from Google Meet to Teaching Load courses
   const applyMeetAutofill = (items: MeetTeachingLoadAutofill[]) => {
-    if (!items || items.length === 0) return
+    if (!items || items.length === 0) return;
 
     setCourses((prevCourses) => {
-      let updated = [...prevCourses]
+      let updated = [...prevCourses];
 
       for (const item of items) {
         const existingIdx = updated.findIndex(
-          (c) => c.code.trim().toUpperCase() === item.courseCode.trim().toUpperCase()
-        )
+          (c) =>
+            c.code.trim().toUpperCase() ===
+            item.courseCode.trim().toUpperCase(),
+        );
 
         if (existingIdx >= 0) {
-          const ex = updated[existingIdx]
+          const ex = updated[existingIdx];
           // 1. Add held date
-          const dates = getHeldDates(ex.datesHeld)
+          const dates = getHeldDates(ex.datesHeld);
           const newDates = dates.includes(item.meetingDate)
             ? dates
-            : [...dates, item.meetingDate].sort()
+            : [...dates, item.meetingDate].sort();
 
           // 2. Topics Discussed
-          let nextTopics = ex.topics
+          let nextTopics = ex.topics;
           if (!nextTopics || nextTopics.trim() === "") {
-            nextTopics = item.topics
-          } else if (!nextTopics.toLowerCase().includes(item.topics.toLowerCase())) {
-            nextTopics = `${nextTopics} · ${item.topics}`
+            nextTopics = item.topics;
+          } else if (
+            !nextTopics.toLowerCase().includes(item.topics.toLowerCase())
+          ) {
+            nextTopics = `${nextTopics} · ${item.topics}`;
           }
 
           // 3. Task/Activity Description
-          let nextTasks = ex.tasks
+          let nextTasks = ex.tasks;
           if (!nextTasks || nextTasks.trim() === "") {
-            nextTasks = item.tasks
+            nextTasks = item.tasks;
           } else if (!nextTasks.toLowerCase().includes("google meet")) {
-            nextTasks = `${nextTasks} · ${item.tasks}`
+            nextTasks = `${nextTasks} · ${item.tasks}`;
           }
 
           // 4. Class Section Row
-          let rows = [...ex.rows]
+          let rows = [...ex.rows];
           const rowIdx = rows.findIndex(
-            (r) => r.section.trim().toUpperCase() === item.section.trim().toUpperCase()
-          )
+            (r) =>
+              r.section.trim().toUpperCase() ===
+              item.section.trim().toUpperCase(),
+          );
           if (rowIdx >= 0) {
-            if (!rows[rowIdx].time || rows[rowIdx].time.includes("6:30 – 9:00")) {
+            if (
+              !rows[rowIdx].time ||
+              rows[rowIdx].time.includes("6:30 – 9:00")
+            ) {
               rows[rowIdx] = {
                 ...rows[rowIdx],
                 days: rows[rowIdx].days || item.meetingDay,
                 time: item.meetingTime,
-              }
+              };
             }
           } else {
             rows.push({
@@ -453,7 +483,7 @@ export default function ProfSubmit() {
               days: item.meetingDay,
               time: item.meetingTime,
               campus: item.campus || "CONGRESS",
-            })
+            });
           }
 
           updated[existingIdx] = {
@@ -462,7 +492,7 @@ export default function ProfSubmit() {
             topics: nextTopics,
             tasks: nextTasks,
             rows,
-          }
+          };
         } else {
           // Brand new course block added from Google Meet
           const newBlock: CourseBlock = {
@@ -485,94 +515,100 @@ export default function ProfSubmit() {
                 campus: item.campus || "CONGRESS",
               },
             ],
-          }
-          updated.push(newBlock)
+          };
+          updated.push(newBlock);
         }
       }
 
-      return updated
-    })
+      return updated;
+    });
 
-    const last = items[items.length - 1]
+    const last = items[items.length - 1];
     setAutofillBanner({
       courseCode: last.courseCode,
       message: `Autofilled from Google Meet`,
       details: `${last.courseCode} (${last.courseTitle}) — Held on ${formatHeldDate(last.meetingDate)} at ${last.meetingTime}.`,
-    })
+    });
 
-    clearPendingMeetTeachingLoadAutofills()
-    recordAppliedMeetAutofills(items)
-  }
+    clearPendingMeetTeachingLoadAutofills();
+    recordAppliedMeetAutofills(items);
+  };
 
   // Real-time listener & initial check for Google Meet autofills
   useEffect(() => {
-    const pending = getPendingMeetTeachingLoadAutofills()
+    const pending = getPendingMeetTeachingLoadAutofills();
     if (pending && pending.length > 0) {
-      applyMeetAutofill(pending)
+      applyMeetAutofill(pending);
     }
 
     const handler = (e: Event) => {
-      const customEvt = e as CustomEvent<MeetTeachingLoadAutofill>
+      const customEvt = e as CustomEvent<MeetTeachingLoadAutofill>;
       if (customEvt.detail) {
-        applyMeetAutofill([customEvt.detail])
+        applyMeetAutofill([customEvt.detail]);
       }
-    }
+    };
 
-    window.addEventListener("aris:meet-autofill-added", handler)
+    window.addEventListener("aris:meet-autofill-added", handler);
     return () => {
-      window.removeEventListener("aris:meet-autofill-added", handler)
-    }
-  }, [])
+      window.removeEventListener("aris:meet-autofill-added", handler);
+    };
+  }, []);
 
   // Manual sync button to pull recent completed Google Meet session into teaching load
   const handleSyncFromGoogleMeet = async () => {
-    setIsSyncingMeet(true)
+    setIsSyncingMeet(true);
     try {
       // 1. Check pending in localStorage
-      const pending = getPendingMeetTeachingLoadAutofills()
+      const pending = getPendingMeetTeachingLoadAutofills();
       if (pending.length > 0) {
-        applyMeetAutofill(pending)
-        setIsSyncingMeet(false)
-        return
+        applyMeetAutofill(pending);
+        setIsSyncingMeet(false);
+        return;
       }
 
       // 2. Fetch completed meetings from DB
-      const dbMeetings = await fetchMeetingsFromDb()
+      const dbMeetings = await fetchMeetingsFromDb();
       const completed = (dbMeetings || []).filter(
-        (m) => m.status === "completed" || m.status === "summarized"
-      )
+        (m) => m.status === "completed" || m.status === "summarized",
+      );
 
       if (completed.length === 0) {
         setAutofillBanner({
           courseCode: "INFO",
           message: "No Recent Google Meet Found",
-          details: "Start and complete a Google Meet session on the Meet page first.",
-        })
-        setIsSyncingMeet(false)
-        return
+          details:
+            "Start and complete a Google Meet session on the Meet page first.",
+        });
+        setIsSyncingMeet(false);
+        return;
       }
 
       // Take latest completed meeting
-      const latest = completed[completed.length - 1]
-      const parsed = parseCourseString(latest.course || "CC 105", availableCourses)
-      const sDate = latest.started_at ? new Date(latest.started_at) : new Date()
+      const latest = completed[completed.length - 1];
+      const parsed = parseCourseString(
+        latest.course || "CC 105",
+        availableCourses,
+      );
+      const sDate = latest.started_at
+        ? new Date(latest.started_at)
+        : new Date();
       const eDate = latest.ended_at
         ? new Date(latest.ended_at)
-        : new Date(sDate.getTime() + (latest.duration_seconds || 3600) * 1000)
+        : new Date(sDate.getTime() + (latest.duration_seconds || 3600) * 1000);
       const meetDate =
         latest.meeting_date ||
         (latest.started_at
           ? String(latest.started_at).split("T")[0]
-          : new Date().toISOString().split("T")[0])
+          : new Date().toISOString().split("T")[0]);
       const meetTime =
         latest.start_time && latest.end_time
           ? `${latest.start_time} – ${latest.end_time}`
-          : `${formatTime12(sDate)} – ${formatTime12(eDate)}`
-      const meetDay = getDayAbbrev(sDate)
+          : `${formatTime12(sDate)} – ${formatTime12(eDate)}`;
+      const meetDay = getDayAbbrev(sDate);
       const meetTopic =
         latest.name && !latest.name.startsWith("Instant Class")
           ? latest.name
-          : `${parsed.courseCode} Online Class Lecture`
+          : `${parsed.courseCode} Online Class Lecture`;
 
       const item: MeetTeachingLoadAutofill = {
         id: latest.id,
@@ -589,35 +625,35 @@ export default function ProfSubmit() {
         tasks: `Online Lecture & Discussion via Google Meet (Room: ${latest.meeting_code}, Duration: ${latest.duration_minutes || 60}m)`,
         campus: "CONGRESS",
         createdAt: new Date().toISOString(),
-      }
+      };
 
-      applyMeetAutofill([item])
+      applyMeetAutofill([item]);
     } catch (err) {
-      console.warn("Sync from Google Meet failed:", err)
+      console.warn("Sync from Google Meet failed:", err);
     } finally {
-      setIsSyncingMeet(false)
+      setIsSyncingMeet(false);
     }
-  }
+  };
 
   /* ── 1. Fetch available courses and professor info from DB ── */
   useEffect(() => {
-    let isCancelled = false
+    let isCancelled = false;
 
     async function loadData() {
-      setLoadingCourses(true)
-      let fetchedCourses: DbCourse[] = []
+      setLoadingCourses(true);
+      let fetchedCourses: DbCourse[] = [];
 
       // A. Try API endpoint
       try {
         const res = await loadResource<DbCourse[]>(
           `/professor/courses?email=${encodeURIComponent(user.email)}`,
-          []
-        )
+          [],
+        );
         if (Array.isArray(res) && res.length > 0) {
-          fetchedCourses = res
+          fetchedCourses = res;
         }
       } catch (err) {
-        console.warn("Could not load from /professor/courses:", err)
+        console.warn("Could not load from /professor/courses:", err);
       }
 
       // B. If empty, try Supabase directly
@@ -627,13 +663,13 @@ export default function ProfSubmit() {
             .from("curriculum_courses")
             .select("id, code, title, units, department_name, description")
             .eq("is_active", true)
-            .order("code", { ascending: true })
+            .order("code", { ascending: true });
 
           if (!error && Array.isArray(data) && data.length > 0) {
-            fetchedCourses = data
+            fetchedCourses = data;
           }
         } catch (sbErr) {
-          console.warn("Supabase curriculum fallback error:", sbErr)
+          console.warn("Supabase curriculum fallback error:", sbErr);
         }
       }
 
@@ -646,7 +682,8 @@ export default function ProfSubmit() {
             title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
             units: 5,
             department_name: "Computer Studies Department",
-            description: "Advanced client-server architectures and modern web frameworks.",
+            description:
+              "Advanced client-server architectures and modern web frameworks.",
           },
           {
             id: "course-cc105",
@@ -654,24 +691,30 @@ export default function ProfSubmit() {
             title: "INFORMATION MANAGEMENT",
             units: 3,
             department_name: "Computer Studies Department",
-            description: "Database design and information system architectures.",
+            description:
+              "Database design and information system architectures.",
           },
-        ]
+        ];
       }
 
       if (!isCancelled) {
-        setAvailableCourses(fetchedCourses)
-        setLoadingCourses(false)
+        setAvailableCourses(fetchedCourses);
+        setLoadingCourses(false);
 
         // Pre-fill initial course block from first available DB course if not already customized
         setCourses((prev) => {
-          if (prev.length > 0 && prev[0].title && prev[0].title !== "ADVANCED WEB SYSTEMS AND TECHNOLOGIES") {
-            return prev
+          if (
+            prev.length > 0 &&
+            prev[0].title &&
+            prev[0].title !== "ADVANCED WEB SYSTEMS AND TECHNOLOGIES"
+          ) {
+            return prev;
           }
           const matched =
-            fetchedCourses.find((c) => c.code.toLowerCase().includes("cc 116")) ||
-            fetchedCourses[0]
-          if (!matched) return prev
+            fetchedCourses.find((c) =>
+              c.code.toLowerCase().includes("cc 116"),
+            ) || fetchedCourses[0];
+          if (!matched) return prev;
 
           return [
             {
@@ -695,12 +738,12 @@ export default function ProfSubmit() {
                 },
               ],
             },
-          ]
-        })
+          ];
+        });
       }
     }
 
-    loadData()
+    loadData();
 
     // Also fetch professor profile details
     async function loadProfessorProfile() {
@@ -711,34 +754,39 @@ export default function ProfSubmit() {
             .select("employee_id, department, firstname, lastname")
             .or(`email.eq.${user.email},id.eq.${user.id}`)
             .limit(1)
-            .maybeSingle()
+            .maybeSingle();
 
           if (data && !isCancelled) {
-            if (data.employee_id) setFacultyNumber(data.employee_id)
-            if (data.department) setCollege(data.department.toUpperCase())
+            if (data.employee_id) setFacultyNumber(data.employee_id);
+            if (data.department) setCollege(data.department.toUpperCase());
             if (data.firstname && data.lastname) {
-              setFacultyName(`${data.firstname} ${data.lastname}`.toUpperCase())
+              setFacultyName(
+                `${data.firstname} ${data.lastname}`.toUpperCase(),
+              );
             }
           }
         }
       } catch (err) {
-        console.warn("Could not load professor profile:", err)
+        console.warn("Could not load professor profile:", err);
       }
     }
 
-    loadProfessorProfile()
+    loadProfessorProfile();
 
     return () => {
-      isCancelled = true
-    }
-  }, [user.email, user.id])
+      isCancelled = true;
+    };
+  }, [user.email, user.id]);
 
   /* ── 2. Filter courses user can add ("you can't add a course if you're not in it") ── */
   const unaddedCourses = useMemo(() => {
     return availableCourses.filter(
-      (dbC) => !courses.some((c) => c.code.trim().toUpperCase() === dbC.code.trim().toUpperCase())
-    )
-  }, [availableCourses, courses])
+      (dbC) =>
+        !courses.some(
+          (c) => c.code.trim().toUpperCase() === dbC.code.trim().toUpperCase(),
+        ),
+    );
+  }, [availableCourses, courses]);
 
   /* ── 3. Course actions ── */
   const handleAddCourseFromDb = (course: DbCourse) => {
@@ -762,32 +810,37 @@ export default function ProfSubmit() {
           campus: "CONGRESS",
         },
       ],
-    }
-    setCourses((prev) => [...prev, newBlock])
-    setIsAddCourseModalOpen(false)
-  }
+    };
+    setCourses((prev) => [...prev, newBlock]);
+    setIsAddCourseModalOpen(false);
+  };
 
   const handleDeleteCourse = (courseId: string) => {
-    if (courses.length <= 1) return
-    setCourses((prev) => prev.filter((c) => c.id !== courseId))
-  }
+    if (courses.length <= 1) return;
+    setCourses((prev) => prev.filter((c) => c.id !== courseId));
+  };
 
   const updateCourseField = (
     courseId: string,
     field: "title" | "datesHeld" | "topics" | "tasks",
-    value: string
+    value: string,
   ) => {
     setCourses((prev) =>
-      prev.map((c) => (c.id === courseId ? { ...c, [field]: value } : c))
-    )
-  }
+      prev.map((c) => (c.id === courseId ? { ...c, [field]: value } : c)),
+    );
+  };
 
   /* ── 4. Class Schedule Row actions ── */
-  const openClassRowModal = (courseId: string, existingRow?: ClassScheduleRow) => {
-    const targetCourse = courses.find((c) => c.id === courseId)
+  const openClassRowModal = (
+    courseId: string,
+    existingRow?: ClassScheduleRow,
+  ) => {
+    const targetCourse = courses.find((c) => c.id === courseId);
     if (existingRow) {
-      setEditingRowId(existingRow.id)
-      const dayArr = existingRow.days.split("|").map((d) => d.trim().toUpperCase())
+      setEditingRowId(existingRow.id);
+      const dayArr = existingRow.days
+        .split("|")
+        .map((d) => d.trim().toUpperCase());
       setClassRowDraft({
         code: existingRow.code || targetCourse?.code || "",
         section: existingRow.section || "",
@@ -797,41 +850,41 @@ export default function ProfSubmit() {
         units: String(existingRow.units || targetCourse?.units || 3),
         days: dayArr,
         customDays: existingRow.days,
-      })
+      });
     } else {
-      setEditingRowId(null)
+      setEditingRowId(null);
       setClassRowDraft({
         ...emptyClassRow,
         code: targetCourse?.code || "",
         units: String(targetCourse?.units || 5),
         campus: "CONGRESS",
-      })
+      });
     }
-    setClassModalCourseId(courseId)
-  }
+    setClassModalCourseId(courseId);
+  };
 
   const closeClassRowModal = () => {
-    setClassModalCourseId(null)
-    setEditingRowId(null)
-  }
+    setClassModalCourseId(null);
+    setEditingRowId(null);
+  };
 
   const saveClassRow = () => {
-    if (!classModalCourseId) return
+    if (!classModalCourseId) return;
     const daysStr =
       classRowDraft.days.length > 0
         ? classRowDraft.days.join(" | ")
-        : classRowDraft.customDays.trim() || "MON | THU"
+        : classRowDraft.customDays.trim() || "MON | THU";
 
-    const timeStartFormatted = formatTime(classRowDraft.startTime)
-    const timeEndFormatted = formatTime(classRowDraft.endTime)
+    const timeStartFormatted = formatTime(classRowDraft.startTime);
+    const timeEndFormatted = formatTime(classRowDraft.endTime);
     const timeStr =
       classRowDraft.days.length > 1
         ? `${timeStartFormatted} – ${timeEndFormatted} | ${timeStartFormatted} – ${timeEndFormatted}`
-        : `${timeStartFormatted} – ${timeEndFormatted}`
+        : `${timeStartFormatted} – ${timeEndFormatted}`;
 
     setCourses((prev) =>
       prev.map((c) => {
-        if (c.id !== classModalCourseId) return c
+        if (c.id !== classModalCourseId) return c;
         if (editingRowId) {
           return {
             ...c,
@@ -846,9 +899,9 @@ export default function ProfSubmit() {
                     time: timeStr,
                     campus: classRowDraft.campus.trim().toUpperCase(),
                   }
-                : r
+                : r,
             ),
-          }
+          };
         } else {
           const newRow: ClassScheduleRow = {
             id: `row_${Date.now()}`,
@@ -858,43 +911,46 @@ export default function ProfSubmit() {
             days: daysStr,
             time: timeStr,
             campus: classRowDraft.campus.trim().toUpperCase(),
-          }
-          return { ...c, rows: [...c.rows, newRow] }
+          };
+          return { ...c, rows: [...c.rows, newRow] };
         }
-      })
-    )
-    closeClassRowModal()
-  }
+      }),
+    );
+    closeClassRowModal();
+  };
 
   const handleDeleteRow = (courseId: string, rowId: string) => {
     setCourses((prev) =>
       prev.map((c) => {
-        if (c.id !== courseId) return c
-        return { ...c, rows: c.rows.filter((r) => r.id !== rowId) }
-      })
-    )
-  }
+        if (c.id !== courseId) return c;
+        return { ...c, rows: c.rows.filter((r) => r.id !== rowId) };
+      }),
+    );
+  };
 
   /* ── 5. Form submission ── */
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setSubmitError(null)
+    e.preventDefault();
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    const kind = recordType.startsWith("Accomplishment") ? "AR" : "DTR"
-    const reference = isRevision && revisionRef ? revisionRef : `${kind}-${Date.now()}`
-    const now = new Date().toLocaleString()
+    const kind = recordType.startsWith("Accomplishment") ? "AR" : "DTR";
+    const reference =
+      isRevision && revisionRef ? revisionRef : `${kind}-${Date.now()}`;
+    const now = new Date().toLocaleString();
 
     const combinedTopics = courses
       .map((c) => (c.topics ? `${c.code}: ${c.topics}` : ""))
       .filter(Boolean)
-      .join(" · ")
+      .join(" · ");
     const combinedTasks = courses
       .map((c) => (c.tasks ? `${c.code}: ${c.tasks}` : ""))
       .filter(Boolean)
-      .join(" · ")
+      .join(" · ");
 
-    const existingId = isRevision ? (reviseSubmission?.id || reviseSubmission?.record?.id) : undefined
+    const existingId = isRevision
+      ? reviseSubmission?.id || reviseSubmission?.record?.id
+      : undefined;
 
     const record = {
       id: existingId || reference,
@@ -936,7 +992,14 @@ export default function ProfSubmit() {
           datesHeld: course.datesHeld,
           topics: course.topics,
           tasks: course.tasks,
-          columns: ["Code", "Program, Year & Section", "Units", "Days", "Time", "Campus"],
+          columns: [
+            "Code",
+            "Program, Year & Section",
+            "Units",
+            "Days",
+            "Time",
+            "Campus",
+          ],
           rows: course.rows.map((row) => [
             row.code,
             row.section,
@@ -946,13 +1009,15 @@ export default function ProfSubmit() {
             row.campus,
           ]),
         })),
-        topics: combinedTopics || "Course syllabus alignment and lecture execution",
+        topics:
+          combinedTopics || "Course syllabus alignment and lecture execution",
         tasks: combinedTasks || "Lecture and Discussion, Activity",
-        notes: notes && !/disapprov|reject|returned/i.test(notes)
-          ? notes
-          : isRevision
-          ? "Resubmitted with corrections."
-          : notes,
+        notes:
+          notes && !/disapprov|reject|returned/i.test(notes)
+            ? notes
+            : isRevision
+              ? "Resubmitted with corrections."
+              : notes,
         attachment: uploadedFile ?? undefined,
         reviewer: "Faculty Checker",
         reviewedAt: now,
@@ -960,24 +1025,24 @@ export default function ProfSubmit() {
           ? "Resubmitted with corrections. Queued for Faculty Checker review."
           : "Received and queued for review.",
       },
-    }
+    };
 
     // Synchronize local storage in demo mode so History immediately displays the revised submission
     try {
       const auditKeys = [
         "aris:demo:/audit",
         `aris:demo:/audit?email=${encodeURIComponent(user?.email || "")}`,
-      ]
+      ];
       for (const k of auditKeys) {
-        const stored = localStorage.getItem(k)
+        const stored = localStorage.getItem(k);
         if (stored) {
-          const parsed = JSON.parse(stored)
-          const isArr = Array.isArray(parsed)
-          const logs = isArr ? parsed : parsed?.logs || []
+          const parsed = JSON.parse(stored);
+          const isArr = Array.isArray(parsed);
+          const logs = isArr ? parsed : parsed?.logs || [];
           const updated = logs.map((log: any) => {
             const match =
               (log.id && log.id === record.id) ||
-              (log.record?.reference && log.record.reference === reference)
+              (log.record?.reference && log.record.reference === reference);
             if (match) {
               return {
                 ...log,
@@ -993,31 +1058,38 @@ export default function ProfSubmit() {
                   ...log.record,
                   ...record.record,
                 },
-              }
+              };
             }
-            return log
-          })
-          localStorage.setItem(k, JSON.stringify(isArr ? updated : { ...parsed, logs: updated }))
+            return log;
+          });
+          localStorage.setItem(
+            k,
+            JSON.stringify(isArr ? updated : { ...parsed, logs: updated }),
+          );
         }
       }
     } catch (syncErr) {
-      console.warn("Could not sync local audit store:", syncErr)
+      console.warn("Could not sync local audit store:", syncErr);
     }
 
     try {
       // Submit directly to accomplishment_reports (and report_entries)
-      await saveResource("/professor/accomplishment-reports", record)
-      navigate("/prof/history")
+      await saveResource("/professor/accomplishment-reports", record);
+      navigate("/prof/history");
     } catch (reason) {
       try {
-        await saveResource("/professor/submissions", record)
-        navigate("/prof/history")
+        await saveResource("/professor/submissions", record);
+        navigate("/prof/history");
       } catch (fallbackErr) {
-        setSubmitError(reason instanceof Error ? reason.message : "Unable to submit this record.")
-        setIsSubmitting(false)
+        setSubmitError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to submit this record.",
+        );
+        setIsSubmitting(false);
       }
     }
-  }
+  };
 
   return (
     <div className="pb-32 max-w-[1180px] mx-auto">
@@ -1042,9 +1114,19 @@ export default function ProfSubmit() {
             <div className="flex items-start gap-3.5">
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: "#fef3c7", color: "#b45309", border: "1px solid #fde68a" }}
+                style={{
+                  background: "#fef3c7",
+                  color: "#b45309",
+                  border: "1px solid #fde68a",
+                }}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-5 h-5">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  className="w-5 h-5"
+                >
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -1057,7 +1139,11 @@ export default function ProfSubmit() {
                   </h3>
                   <span
                     className="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
-                    style={{ background: "#fee2e2", color: "#b91c1c", border: "1px solid #fca5a5" }}
+                    style={{
+                      background: "#fee2e2",
+                      color: "#b91c1c",
+                      border: "1px solid #fca5a5",
+                    }}
                   >
                     Returned for Revision
                   </span>
@@ -1071,26 +1157,33 @@ export default function ProfSubmit() {
                     Reviewer Feedback / Reason for Rejection:
                   </p>
                   <p className="text-[13px] font-semibold text-[#78350f] leading-relaxed">
-                    {revisionReason || "Please review and correct the required entries before resubmitting."}
+                    {revisionReason ||
+                      "Please review and correct the required entries before resubmitting."}
                   </p>
                   {revisionReviewer && (
                     <p className="text-[11.5px] text-[#92400e]/80 mt-1.5">
-                      Returned by: <span className="font-semibold text-[#92400e]">{revisionReviewer}</span>
+                      Returned by:{" "}
+                      <span className="font-semibold text-[#92400e]">
+                        {revisionReviewer}
+                      </span>
                     </p>
                   )}
                 </div>
 
                 <p className="text-[12px] text-[#92400e] mt-2.5 leading-snug">
-                  You can edit teaching loads, class schedules, dates held, topics, tasks, and upload new documents below. Resubmitting will reset the status to <strong>Pending</strong> and return it to the <strong>Faculty Checker</strong> stage for review.
+                  You can edit teaching loads, class schedules, dates held,
+                  topics, tasks, and upload new documents below. Resubmitting
+                  will reset the status to <strong>Pending</strong> and return
+                  it to the <strong>Faculty Checker</strong> stage for review.
                 </p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => {
-                setIsRevision(false)
-                setRevisionRef("")
-                setRevisionReason("")
+                setIsRevision(false);
+                setRevisionRef("");
+                setRevisionReason("");
               }}
               className="px-3.5 py-1.5 rounded-xl border bg-white text-[12px] font-semibold text-[#b45309] hover:bg-[#fffbeb] transition-colors flex-shrink-0 cursor-pointer shadow-2xs"
               style={{ borderColor: "#fcd34d" }}
@@ -1228,10 +1321,17 @@ export default function ProfSubmit() {
                 </span>
               </div>
               <p className="text-[12px] text-[#8fa394] mt-0.5">
-                Each course includes schedule rows, held dates, and discussed topics.
+                Each course includes schedule rows, held dates, and discussed
+                topics.
               </p>
               <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[#a3d9bc] bg-[#f0faf5] px-3 py-2 text-[11.5px] font-semibold text-[#007a55]">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 flex-shrink-0">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-4 w-4 flex-shrink-0"
+                >
                   <path d="M12 20h9" />
                   <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
                 </svg>
@@ -1247,7 +1347,13 @@ export default function ProfSubmit() {
                 className="px-3.5 py-2 rounded-xl text-[12.5px] font-bold border border-[#009668] bg-[#f0faf5] text-[#009668] hover:bg-[#e2f5ec] transition-all flex items-center gap-1.5 shadow-xs disabled:opacity-50 active:scale-98"
                 title="Sync and auto-fill latest Google Meet sessions into Teaching Load"
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className={`w-3.5 h-3.5 ${isSyncingMeet ? "animate-spin" : ""}`}>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  className={`w-3.5 h-3.5 ${isSyncingMeet ? "animate-spin" : ""}`}
+                >
                   <polygon points="23 7 16 12 23 17 23 7" />
                   <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
                 </svg>
@@ -1259,11 +1365,18 @@ export default function ProfSubmit() {
                 onClick={() => setIsAddCourseModalOpen(true)}
                 className="px-4 py-2 rounded-xl text-[12.5px] font-bold flex items-center gap-2 transition-all shadow-sm hover:shadow active:scale-98"
                 style={{
-                  background: "linear-gradient(135deg, #009668 0%, #00b87a 100%)",
+                  background:
+                    "linear-gradient(135deg, #009668 0%, #00b87a 100%)",
                   color: "#ffffff",
                 }}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-4 h-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  className="w-4 h-4"
+                >
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
@@ -1277,7 +1390,13 @@ export default function ProfSubmit() {
             <div className="rounded-2xl border border-[#a3d9bc] bg-[#f0faf5] p-4 flex items-start justify-between gap-3 shadow-xs animate-in fade-in duration-200">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-xl bg-[#009668] text-white flex items-center justify-center flex-shrink-0 shadow-sm mt-0.5">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-4 h-4">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    className="w-4 h-4"
+                  >
                     <polygon points="23 7 16 12 23 17 23 7" />
                     <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
                   </svg>
@@ -1329,14 +1448,21 @@ export default function ProfSubmit() {
                       COURSE {idx + 1} · {course.code}
                     </h4>
                     <p className="text-[11.5px] text-[#718576]">
-                      {course.units} Units · {course.rows.length} class section{course.rows.length === 1 ? "" : "s"}
+                      {course.units} Units · {course.rows.length} class section
+                      {course.rows.length === 1 ? "" : "s"}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1 rounded-lg bg-[#f0faf5] px-2.5 py-1.5 text-[11px] font-bold text-[#009668]">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="h-3.5 w-3.5"
+                    >
                       <path d="M12 20h9" />
                       <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
                     </svg>
@@ -1347,7 +1473,13 @@ export default function ProfSubmit() {
                     onClick={() => openClassRowModal(course.id)}
                     className="px-3 py-1.5 rounded-lg text-[12px] font-bold border border-[#009668] text-[#009668] hover:bg-[#f0faf5] transition-colors flex items-center gap-1.5"
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="w-3.5 h-3.5">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.4"
+                      className="w-3.5 h-3.5"
+                    >
                       <line x1="12" y1="5" x2="12" y2="19" />
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
@@ -1361,7 +1493,13 @@ export default function ProfSubmit() {
                       className="p-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-colors"
                       title="Remove Course"
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="w-4 h-4"
+                      >
                         <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
@@ -1444,12 +1582,16 @@ export default function ProfSubmit() {
                           style={{ border: "1px solid #111c14" }}
                           className="text-center py-6 text-[12.5px] text-gray-500 bg-[#fefefe]"
                         >
-                          No class section schedule added yet. Click &quot;Add Class Row&quot; above to add one.
+                          No class section schedule added yet. Click &quot;Add
+                          Class Row&quot; above to add one.
                         </td>
                       </tr>
                     ) : (
                       course.rows.map((row) => (
-                        <tr key={row.id} className="group hover:bg-[#fbfcfb] transition-colors">
+                        <tr
+                          key={row.id}
+                          className="group hover:bg-[#fbfcfb] transition-colors"
+                        >
                           <td
                             style={{ border: "1px solid #111c14" }}
                             className="px-3 py-3 text-center text-[12.5px] font-bold text-[#111c14]"
@@ -1489,22 +1631,38 @@ export default function ProfSubmit() {
                               <div className="ml-1 flex items-center gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => openClassRowModal(course.id, row)}
+                                  onClick={() =>
+                                    openClassRowModal(course.id, row)
+                                  }
                                   className="rounded p-0.5 text-[#009668] hover:bg-[#eaf4ee]"
                                   title="Edit row"
                                 >
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="w-3.5 h-3.5"
+                                  >
                                     <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                                   </svg>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleDeleteRow(course.id, row.id)}
+                                  onClick={() =>
+                                    handleDeleteRow(course.id, row.id)
+                                  }
                                   className="rounded p-0.5 text-gray-400 hover:bg-red-50 hover:text-red-500"
                                   title="Remove row"
                                 >
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="w-3.5 h-3.5"
+                                  >
                                     <line x1="18" y1="6" x2="6" y2="18" />
                                     <line x1="6" y1="6" x2="18" y2="18" />
                                   </svg>
@@ -1536,9 +1694,14 @@ export default function ProfSubmit() {
                               updateCourseField(
                                 course.id,
                                 "datesHeld",
-                                [...new Set([...getHeldDates(course.datesHeld), e.target.value])]
+                                [
+                                  ...new Set([
+                                    ...getHeldDates(course.datesHeld),
+                                    e.target.value,
+                                  ]),
+                                ]
                                   .sort()
-                                  .join(",")
+                                  .join(","),
                               )
                             }
                             className="h-11 rounded-xl border border-[#e8eeea] bg-[#fafbfa] px-3.5 text-[12.5px] font-semibold text-[#111c14] outline-none transition-colors focus:border-[#009668] focus:bg-white"
@@ -1561,7 +1724,7 @@ export default function ProfSubmit() {
                                       "datesHeld",
                                       getHeldDates(course.datesHeld)
                                         .filter((heldDate) => heldDate !== date)
-                                        .join(",")
+                                        .join(","),
                                     )
                                   }
                                   className="rounded text-[#718576] hover:bg-white hover:text-red-500"
@@ -1605,7 +1768,11 @@ export default function ProfSubmit() {
                           value={course.topics}
                           placeholder="e.g. DESIGNING LOG IN MODAL"
                           onChange={(e) =>
-                            updateCourseField(course.id, "topics", e.target.value)
+                            updateCourseField(
+                              course.id,
+                              "topics",
+                              e.target.value,
+                            )
                           }
                           className={`${inputCls} uppercase tracking-wide placeholder:normal-case placeholder:font-normal placeholder:text-gray-400`}
                           style={inputStyle}
@@ -1628,7 +1795,11 @@ export default function ProfSubmit() {
                           value={course.tasks}
                           placeholder="e.g. Lecture and Discussion, Activity"
                           onChange={(e) =>
-                            updateCourseField(course.id, "tasks", e.target.value)
+                            updateCourseField(
+                              course.id,
+                              "tasks",
+                              e.target.value,
+                            )
                           }
                           className={`${inputCls} placeholder:text-gray-400`}
                           style={inputStyle}
@@ -1648,11 +1819,18 @@ export default function ProfSubmit() {
             className="w-full py-4 rounded-2xl border-2 border-dashed font-bold text-[13px] transition-all flex items-center justify-center gap-2 hover:bg-[#f0faf5] hover:border-[#009668] active:scale-[0.995]"
             style={{ borderColor: "#a3d9bc", color: "#009668" }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-4 h-4">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              className="w-4 h-4"
+            >
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            Add Course Subject Block ({unaddedCourses.length} available from your load)
+            Add Course Subject Block ({unaddedCourses.length} available from
+            your load)
           </button>
         </div>
 
@@ -1665,47 +1843,73 @@ export default function ProfSubmit() {
               subtitle="Upload syllabus, meeting attendance, or proof of class."
             />
             <div
-              onClick={() => setUploadedFile("Accomplishment_Report_Docs_Sept.pdf")}
+              onClick={() =>
+                setUploadedFile("Accomplishment_Report_Docs_Sept.pdf")
+              }
               onDragOver={(e) => {
-                e.preventDefault()
-                setIsDragOver(true)
+                e.preventDefault();
+                setIsDragOver(true);
               }}
               onDragLeave={() => setIsDragOver(false)}
               onDrop={(e) => {
-                e.preventDefault()
-                setIsDragOver(false)
+                e.preventDefault();
+                setIsDragOver(false);
                 if (e.dataTransfer.files[0]) {
-                  setUploadedFile(e.dataTransfer.files[0].name)
+                  setUploadedFile(e.dataTransfer.files[0].name);
                 }
               }}
               className="rounded-xl border-2 border-dashed p-7 flex flex-col items-center justify-center cursor-pointer transition-all select-none"
               style={{
                 borderColor: isDragOver ? "#009668" : "#cad5cc",
-                background: isDragOver ? "#eaf4ee" : uploadedFile ? "#f0faf5" : "#fafbfa",
+                background: isDragOver
+                  ? "#eaf4ee"
+                  : uploadedFile
+                    ? "#f0faf5"
+                    : "#fafbfa",
               }}
             >
               {uploadedFile ? (
                 <>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-2 bg-[#d4f0e4]">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#009668" strokeWidth="2" className="w-5 h-5">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#009668"
+                      strokeWidth="2"
+                      className="w-5 h-5"
+                    >
                       <path d="M9 12l2 2 4-4" />
                       <circle cx="12" cy="12" r="10" />
                     </svg>
                   </div>
-                  <p className="text-[13px] font-bold text-[#009668]">{uploadedFile}</p>
-                  <p className="text-[11px] mt-1 text-[#8fa394]">Click to replace attached document</p>
+                  <p className="text-[13px] font-bold text-[#009668]">
+                    {uploadedFile}
+                  </p>
+                  <p className="text-[11px] mt-1 text-[#8fa394]">
+                    Click to replace attached document
+                  </p>
                 </>
               ) : (
                 <>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-2 bg-[#eaf4ee]">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#009668" strokeWidth="2" className="w-5 h-5">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#009668"
+                      strokeWidth="2"
+                      className="w-5 h-5"
+                    >
                       <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
                       <polyline points="16 6 12 2 8 6" />
                       <line x1="12" y1="2" x2="12" y2="15" />
                     </svg>
                   </div>
-                  <p className="text-[13px] font-semibold text-[#3d4a41]">Browse or drag proof files here</p>
-                  <p className="text-[11px] mt-1 text-[#8fa394]">PDF · DOCX · XLS · XLSX · JPG · PNG</p>
+                  <p className="text-[13px] font-semibold text-[#3d4a41]">
+                    Browse or drag proof files here
+                  </p>
+                  <p className="text-[11px] mt-1 text-[#8fa394]">
+                    PDF · DOCX · XLS · XLSX · JPG · PNG
+                  </p>
                 </>
               )}
             </div>
@@ -1740,7 +1944,7 @@ export default function ProfSubmit() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setIsAddCourseModalOpen(false)
+            if (e.target === e.currentTarget) setIsAddCourseModalOpen(false);
           }}
         >
           <div className="w-full max-w-[540px] rounded-2xl bg-white p-6 shadow-2xl border border-[#cad5cc] animate-in fade-in zoom-in-95 duration-150">
@@ -1750,7 +1954,8 @@ export default function ProfSubmit() {
                   Add Course from Your Teaching Load
                 </h3>
                 <p className="text-[12px] text-[#718576] mt-0.5">
-                  You can only file records for courses assigned to your department load.
+                  You can only file records for courses assigned to your
+                  department load.
                 </p>
               </div>
               <button
@@ -1768,7 +1973,8 @@ export default function ProfSubmit() {
               </div>
             ) : availableCourses.length === 0 ? (
               <div className="py-6 text-center text-[13px] text-gray-500 bg-gray-50 rounded-xl">
-                No active courses assigned to your department in the curriculum catalog.
+                No active courses assigned to your department in the curriculum
+                catalog.
               </div>
             ) : unaddedCourses.length === 0 ? (
               <div className="py-6 px-4 text-center rounded-xl bg-[#f0faf5] border border-[#a3d9bc]">
@@ -1776,15 +1982,19 @@ export default function ProfSubmit() {
                   All Assigned Courses Already Added
                 </p>
                 <p className="text-[12px] text-[#4b6a55] mt-1">
-                  All {availableCourses.length} courses in your assigned load are currently part of this report. You cannot add courses that are not assigned to you.
+                  All {availableCourses.length} courses in your assigned load
+                  are currently part of this report. You cannot add courses that
+                  are not assigned to you.
                 </p>
               </div>
             ) : (
               <div className="max-h-[360px] overflow-y-auto space-y-2.5 pr-1">
                 {availableCourses.map((dbC) => {
                   const isAdded = courses.some(
-                    (c) => c.code.trim().toUpperCase() === dbC.code.trim().toUpperCase()
-                  )
+                    (c) =>
+                      c.code.trim().toUpperCase() ===
+                      dbC.code.trim().toUpperCase(),
+                  );
                   return (
                     <div
                       key={dbC.id || dbC.code}
@@ -1827,7 +2037,7 @@ export default function ProfSubmit() {
                         </button>
                       )}
                     </div>
-                  )
+                  );
                 })}
               </div>
             )}
@@ -1850,7 +2060,7 @@ export default function ProfSubmit() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
           onClick={(e) => {
-            if (e.target === e.currentTarget) closeClassRowModal()
+            if (e.target === e.currentTarget) closeClassRowModal();
           }}
         >
           <section
@@ -1862,8 +2072,13 @@ export default function ProfSubmit() {
           >
             <header className="mb-4 flex items-center justify-between">
               <div>
-                <h3 id="add-class-title" className="text-[15px] font-bold text-[#111c14]">
-                  {editingRowId ? "Edit Class Section Row" : "Add Class Section Row"}
+                <h3
+                  id="add-class-title"
+                  className="text-[15px] font-bold text-[#111c14]"
+                >
+                  {editingRowId
+                    ? "Edit Class Section Row"
+                    : "Add Class Section Row"}
                 </h3>
                 <p className="text-[11.5px] text-[#718576]">
                   Enter section, schedule days, time, and campus.
@@ -1896,7 +2111,10 @@ export default function ProfSubmit() {
                     min="1"
                     value={classRowDraft.units}
                     onChange={(e) =>
-                      setClassRowDraft({ ...classRowDraft, units: e.target.value })
+                      setClassRowDraft({
+                        ...classRowDraft,
+                        units: e.target.value,
+                      })
                     }
                     className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
                   />
@@ -1912,7 +2130,10 @@ export default function ProfSubmit() {
                     placeholder="e.g. BSCS 3-B"
                     value={classRowDraft.section}
                     onChange={(e) =>
-                      setClassRowDraft({ ...classRowDraft, section: e.target.value })
+                      setClassRowDraft({
+                        ...classRowDraft,
+                        section: e.target.value,
+                      })
                     }
                     className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium uppercase border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
                   />
@@ -1923,7 +2144,10 @@ export default function ProfSubmit() {
                   <select
                     value={classRowDraft.campus}
                     onChange={(e) =>
-                      setClassRowDraft({ ...classRowDraft, campus: e.target.value })
+                      setClassRowDraft({
+                        ...classRowDraft,
+                        campus: e.target.value,
+                      })
                     }
                     className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium uppercase border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668] bg-white"
                   >
@@ -1941,7 +2165,7 @@ export default function ProfSubmit() {
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {DAYS_OPTIONS.map((day) => {
-                    const isSelected = classRowDraft.days.includes(day.value)
+                    const isSelected = classRowDraft.days.includes(day.value);
                     return (
                       <button
                         key={day.value}
@@ -1949,8 +2173,11 @@ export default function ProfSubmit() {
                         onClick={() => {
                           const nextDays = isSelected
                             ? classRowDraft.days.filter((d) => d !== day.value)
-                            : [...classRowDraft.days, day.value]
-                          setClassRowDraft({ ...classRowDraft, days: nextDays })
+                            : [...classRowDraft.days, day.value];
+                          setClassRowDraft({
+                            ...classRowDraft,
+                            days: nextDays,
+                          });
                         }}
                         className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all ${
                           isSelected
@@ -1960,7 +2187,7 @@ export default function ProfSubmit() {
                       >
                         {day.label}
                       </button>
-                    )
+                    );
                   })}
                 </div>
               </div>
@@ -1973,7 +2200,10 @@ export default function ProfSubmit() {
                     type="time"
                     value={classRowDraft.startTime}
                     onChange={(e) =>
-                      setClassRowDraft({ ...classRowDraft, startTime: e.target.value })
+                      setClassRowDraft({
+                        ...classRowDraft,
+                        startTime: e.target.value,
+                      })
                     }
                     className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
                   />
@@ -1985,7 +2215,10 @@ export default function ProfSubmit() {
                     type="time"
                     value={classRowDraft.endTime}
                     onChange={(e) =>
-                      setClassRowDraft({ ...classRowDraft, endTime: e.target.value })
+                      setClassRowDraft({
+                        ...classRowDraft,
+                        endTime: e.target.value,
+                      })
                     }
                     className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
                   />
@@ -2059,13 +2292,19 @@ export default function ProfSubmit() {
               background: isSubmitting
                 ? "#5abf97"
                 : isRevision
-                ? "linear-gradient(135deg,#c0392b 0%,#e74c3c 100%)"
-                : "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
+                  ? "linear-gradient(135deg,#c0392b 0%,#e74c3c 100%)"
+                  : "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
             }}
           >
             {isSubmitting ? (
               <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 animate-spin">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="w-4 h-4 animate-spin"
+                >
                   <circle cx="12" cy="12" r="10" opacity="0.25" />
                   <path d="M12 2a10 10 0 0110 10" />
                 </svg>
@@ -2073,7 +2312,13 @@ export default function ProfSubmit() {
               </>
             ) : isRevision ? (
               <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="w-4 h-4"
+                >
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                 </svg>
@@ -2081,7 +2326,13 @@ export default function ProfSubmit() {
               </>
             ) : (
               <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="w-4 h-4"
+                >
                   <line x1="22" y1="2" x2="11" y2="13" />
                   <polygon points="22 2 15 22 11 13 2 9 22 2" />
                 </svg>
@@ -2092,5 +2343,5 @@ export default function ProfSubmit() {
         </div>
       </div>
     </div>
-  )
+  );
 }

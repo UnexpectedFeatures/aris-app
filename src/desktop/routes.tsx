@@ -91,7 +91,7 @@ export const desktopRouter = createHashRouter([
       { path: "submit", Component: ProfSubmit },
       { path: "history", Component: ProfHistory },
       { path: "biometrics", Component: AuthenticatorPage },
-      { path: "dtr", Component: DtrPage },
+      // { path: "dtr", Component: DtrPage },
       { path: "transactions", Component: BiometricsTransactionsPage },
       { path: "meet", Component: ProfMeet },
       { path: "summaries", Component: ProfSummaries },
