@@ -464,7 +464,7 @@ function QueueCard({
 
 export default function Approvals() {
   const { user } = useAuth();
-  const { data: queue, setData: setQueue } = useResource("/approvals", demoApprovalQueue);
+  const { data: queue, setData: setQueue, loading } = useResource<ApprovalItem[]>("/approvals", []);
   const role = user.role === "staff" && STAGES.includes(user.staffStage as StageRole)
     ? user.staffStage as StageRole
     : null;
@@ -559,9 +559,13 @@ export default function Approvals() {
     <div className="pb-2">
       <PageTitle
         title="Approvals"
-        subtitle={`${awaiting} submission${
-          awaiting === 1 ? "" : "s"
-        } awaiting your action · ${inPipeline} in the pipeline`}
+        subtitle={
+          loading
+            ? "Loading approval pipeline..."
+            : `${awaiting} submission${
+                awaiting === 1 ? "" : "s"
+              } awaiting your action · ${inPipeline} in the pipeline`
+        }
         action={
           <SearchInput
             placeholder="Search faculty, reference or period"
@@ -712,7 +716,7 @@ export default function Approvals() {
                     className="text-center text-[11.5px] py-10 rounded-2xl border border-dashed"
                     style={{ color: "#b6c3ba", borderColor: "#e2e8e4" }}
                   >
-                    Empty
+                    {loading ? "Loading…" : "Empty"}
                   </div>
                 )}
               </div>

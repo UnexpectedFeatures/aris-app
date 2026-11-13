@@ -313,6 +313,16 @@ export default function DtrPage() {
                     </tr>
                   );
                 })}
+                {!rows.length && s.loading && (
+                  <tr>
+                    <td
+                      colSpan={multi ? 7 : 6}
+                      className="py-6 text-center text-[#64748B]"
+                    >
+                      Loading records...
+                    </td>
+                  </tr>
+                )}
                 {!rows.length && !s.loading && (
                   <tr>
                     <td
