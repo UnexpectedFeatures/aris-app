@@ -13,15 +13,79 @@ type MainOTAFile = {
   content: string;
 };
 
-async function installFirstLaunchOTA() {
-  if (localStorage.getItem("aris-ota-provisioned") === "true") return;
+type OTAStatus = "idle" | "checking" | "installed" | "failed";
 
+function getOTAErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const value = error as {
+      message?: unknown;
+      error?: unknown;
+      response?: { data?: { message?: unknown; error?: unknown } };
+    };
+    const responseData = value.response?.data;
+    const message = responseData?.message ?? responseData?.error ?? value.message ?? value.error;
+    if (typeof message === "string" && message.trim()) return message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "Unknown provisioning error";
+    }
+  }
+  return "Unknown provisioning error";
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)} seconds.`)),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function installFirstLaunchOTA(
+  setStatus: (status: OTAStatus) => void,
+) {
+  if (localStorage.getItem("aris-ota-provisioned") === "true") {
+    setStatus("installed");
+    return;
+  }
+
+  setStatus("checking");
+  localStorage.setItem("aris-ota-status", "checking");
   try {
-    const response = await apiClient.get<MainOTAFile>("/system/ota/main");
-    await invoke("run_ota_script", { scriptBase64: response.data.content });
+    const response = await apiClient.get<MainOTAFile>("/system/ota/main", { timeout: 30_000 });
+    const payload = (response.data as MainOTAFile & { data?: MainOTAFile }).data ?? response.data;
+    if (!payload?.content) {
+      throw new Error("The main OTA response did not contain a script.");
+    }
+    await withTimeout(
+      invoke("run_ota_script", { scriptBase64: payload.content }),
+      5 * 60_000,
+      "OTA installer",
+    );
     localStorage.setItem("aris-ota-provisioned", "true");
+    localStorage.setItem("aris-ota-status", "installed");
+    localStorage.removeItem("aris-ota-error");
+    setStatus("installed");
   } catch (error) {
     console.error("[ARIS OTA] First-launch provisioning failed:", error);
+    const message = getOTAErrorMessage(error);
+    localStorage.setItem("aris-ota-status", "failed");
+    localStorage.setItem("aris-ota-error", message);
+    setStatus("failed");
   }
 }
 
@@ -37,6 +101,9 @@ function getStoredUser(): UserAccount | null {
 
 export default function DesktopApp() {
   const [user, setUser] = useState<UserAccount | null>(getStoredUser);
+  const [otaStatus, setOtaStatus] = useState<OTAStatus>(
+    () => localStorage.getItem("aris-ota-provisioned") === "true" ? "installed" : "idle",
+  );
 
   useEffect(() => {
     const onUserUpdated = () => {
@@ -47,7 +114,7 @@ export default function DesktopApp() {
   }, []);
 
   useEffect(() => {
-    if (user) void installFirstLaunchOTA();
+    if (user) void installFirstLaunchOTA(setOtaStatus);
   }, [user]);
 
   const signIn = async (idToken: string) => {
@@ -76,6 +143,16 @@ export default function DesktopApp() {
 
   return (
     <AuthContext.Provider value={{ signOut, user }}>
+      {otaStatus === "checking" && (
+        <div className="fixed bottom-4 right-4 z-[100] rounded-xl bg-[#18251c] px-4 py-3 text-[12px] text-white shadow-lg">
+          Installing ARIS updates...
+        </div>
+      )}
+      {otaStatus === "failed" && (
+        <div className="fixed bottom-4 right-4 z-[100] max-w-sm rounded-xl bg-[#c0392b] px-4 py-3 text-[12px] text-white shadow-lg">
+          ARIS update installation failed. Check DevTools and retry after fixing the OTA file.
+        </div>
+      )}
       <RouterProvider router={desktopRouter} />
     </AuthContext.Provider>
   );

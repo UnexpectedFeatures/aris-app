@@ -68,7 +68,7 @@ const STORAGE_KEY = "aris_app_read_notifications";
 export default function ProfAnnouncements() {
   const [tab, setTab] = useState("All");
   const { data: rawPosts, loading: loadingPosts, error: errorPosts } =
-    useResource<RawAnnouncement[]>("/announcements", demoPosts);
+    useResource<RawAnnouncement[]>("/announcements", []);
   const { data: rawNotifs, loading: loadingNotifs, error: errorNotifs } =
     useResource<RawNotification[]>("/notifications", []);
 
@@ -187,7 +187,7 @@ export default function ProfAnnouncements() {
     return p.tag.toLowerCase().includes(tab.toLowerCase());
   });
 
-  const loading = loadingPosts && loadingNotifs;
+  const loading = loadingPosts || loadingNotifs;
   const error = errorPosts || errorNotifs;
 
   return (

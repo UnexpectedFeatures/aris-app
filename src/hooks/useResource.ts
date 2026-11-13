@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { loadResource } from "@/services/dataSource";
+import { loadResource, isDemoMode } from "@/services/dataSource";
 
 export function useResource<T>(endpoint: string, demoValue: T) {
-	const [data, setData] = useState(demoValue);
+	const [data, setData] = useState<T>(() =>
+		isDemoMode ? demoValue : Array.isArray(demoValue) ? ([] as unknown as T) : demoValue,
+	);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [revision, setRevision] = useState(0);

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router"
 import { useAuth } from "@/app/authContext"
 import { BRAND } from "@/config/navigation"
 import { useResource } from "@/hooks/useResource"
-import { demoAuditLogs, type AuditLog, type AuditApiResponse } from "@/data/demoAuditLogs"
+import { type AuditLog, type AuditApiResponse } from "@/data/demoAuditLogs"
 import {
   Card,
   PageTitle,
@@ -485,7 +485,7 @@ export default function ProfHistory() {
   // Sourced directly from /audit, identical to how aris-web in audit logs gets it
   const { data: rawData, loading, reload } = useResource<AuditApiResponse | AuditLog[]>(
     `/audit${emailQuery}`,
-    demoAuditLogs,
+    [],
   )
 
   const logs: AuditLog[] = useMemo(() => {
@@ -493,7 +493,7 @@ export default function ProfHistory() {
     if (rawData && Array.isArray((rawData as AuditApiResponse).logs)) {
       return (rawData as AuditApiResponse).logs
     }
-    return demoAuditLogs
+    return []
   }, [rawData])
 
   const allRecords: HistoryRecord[] = useMemo(() => {
@@ -696,14 +696,14 @@ export default function ProfHistory() {
         }
       />
 
-      <LatestSubmissionCard submission={latestSubmission} onRevise={handleRevise} />
+      {latestSubmission && <LatestSubmissionCard submission={latestSubmission} onRevise={handleRevise} />}
 
       <StatGrid className="mb-4">
         {[
-          ["Total Filed", String(records.length)],
-          ["Approved", String(approvedCount)],
-          ["Pending", String(pendingCount)],
-          ["Rejected", String(rejectedCount)],
+          ["Total Filed", loading ? "—" : String(records.length)],
+          ["Approved", loading ? "—" : String(approvedCount)],
+          ["Pending", loading ? "—" : String(pendingCount)],
+          ["Rejected", loading ? "—" : String(rejectedCount)],
         ].map(([l, v]) => (
           <StatCard key={l} label={l} value={v} />
         ))}
