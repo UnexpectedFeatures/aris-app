@@ -114,6 +114,18 @@ export const profAuthenticatorNav: NavItem[] = [
       </>,
     ),
   },
+  {
+    path: "/prof/transactions",
+    label: "Transactions",
+    icon: icon(
+      <>
+        <path d="M4 2v20l2-1.5L8 22l2-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2 1.5V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2Z" />
+        <path d="M8 8h8" />
+        <path d="M8 12h8" />
+        <path d="M8 16h5" />
+      </>,
+    ),
+  },
 ];
 
 export const profMeetNav: NavItem[] = [

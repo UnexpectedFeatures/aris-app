@@ -15,6 +15,7 @@ export interface DtrRecord {
   time_in: string | null;
   time_out: string | null;
   total_hours: string;
+  daily_hours?: string;
   shift_date: string;
   on_site: boolean;
   created_at: string;
@@ -53,6 +54,12 @@ export interface PunchState {
 interface DtrState {
   userId: string | null;
   records: DtrRecord[];
+  latest: DtrRecord[]; // newest unfiltered page 1; drives next action / last punch
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  missedOnly: boolean;
   loading: boolean;
   loadError: string | null;
   punch: PunchState;
@@ -72,6 +79,12 @@ const SCAN_TEXT: Record<string, string> = {
 let state: DtrState = {
   userId: null,
   records: [],
+  latest: [],
+  page: 1,
+  limit: 20,
+  total: 0,
+  totalPages: 1,
+  missedOnly: false,
   loading: false,
   loadError: null,
   punch: IDLE,
@@ -122,23 +135,48 @@ const todayManila = () =>
 
 // Mirrors the server rule: time out today's latest open row; otherwise start a new row.
 export function selectNextAction(mine: DtrRecord[]): NextAction {
-  const latestToday = mine.find((record) => record.shift_date === todayManila());
+  const latestToday = mine.find(
+    (record) => record.shift_date === todayManila(),
+  );
   return latestToday?.time_in && !latestToday.time_out ? "time_out" : "time_in";
 }
 
 // ───────── actions ─────────
 
-export async function loadDtr() {
+let loadId = 0;
+
+export async function loadDtr(page = state.page) {
+  const id = ++loadId;
+  const { limit, missedOnly } = state;
   set({ loading: true, loadError: null });
   try {
-    const [userId, body] = await Promise.all([getUserId(), fetchDtrRecords()]);
-    const rows = (Array.isArray(body) ? body : body?.data) as
-      | DtrRecord[]
-      | undefined;
-    set({ userId, records: rows ?? [], loading: false });
+    const [userId, body] = await Promise.all([
+      getUserId(),
+      fetchDtrRecords({ page, limit, missed: missedOnly }),
+    ]);
+    if (id !== loadId) return; // a newer load superseded this one
+    const records = ((Array.isArray(body) ? body : body?.data) ??
+      []) as DtrRecord[];
+    const p = body?.pagination;
+    const currentPage = p?.page ?? page;
+    set({
+      userId,
+      records,
+      page: currentPage,
+      total: p?.total ?? records.length,
+      totalPages: Math.max(1, p?.totalPages ?? 1),
+      ...(currentPage === 1 && !missedOnly ? { latest: records } : {}),
+      loading: false,
+    });
   } catch (e) {
+    if (id !== loadId) return;
     set({ loading: false, loadError: message(e) });
   }
+}
+
+export function setDtrMissedOnly(missedOnly: boolean) {
+  set({ missedOnly });
+  return loadDtr(1);
 }
 
 let runId = 0;
@@ -193,6 +231,7 @@ export async function punchNow(deviceId: string, timeoutMs = 10000) {
     if (live())
       set({ punch: { phase: "failed", result: null, error: message(e) } });
   } finally {
-    await loadDtr();
+    // back to page 1, unfiltered, so `latest` refreshes
+    await setDtrMissedOnly(false);
   }
 }

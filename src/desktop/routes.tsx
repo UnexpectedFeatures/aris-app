@@ -15,6 +15,7 @@ import StaffApprovals from "@/pages/Staff/Approvals";
 import StaffAnnouncements from "@/pages/Professor/Announcements";
 import AuthenticatorPage from "@/pages/Biometrics/AuthenticatorPage";
 import DtrPage from "@/pages/Biometrics/DtrPage";
+import BiometricsTransactionsPage from "@/pages/Biometrics/BiometricsTransactionsPage";
 
 function StaffRootWithAuth() {
   const { signOut, user } = useAuth();
@@ -91,6 +92,7 @@ export const desktopRouter = createHashRouter([
       { path: "history", Component: ProfHistory },
       { path: "biometrics", Component: AuthenticatorPage },
       { path: "dtr", Component: DtrPage },
+      { path: "transactions", Component: BiometricsTransactionsPage },
       { path: "meet", Component: ProfMeet },
       { path: "summaries", Component: ProfSummaries },
       { path: "tickets", Component: Tickets },

@@ -7,19 +7,19 @@ import {
   resetPunch,
   selectMine,
   selectNextAction,
+  setDtrMissedOnly,
   useDtrStore,
   type DtrRecord,
   type NextAction,
   type PunchResult,
 } from "../../stores/dtrStore";
-import {
+import Pager, {
   alertErr,
   alertOk,
   btn,
   btnPrimary,
   card,
 } from "../../components/theme";
-
 const LABEL = {
   time_in: "Time In",
   time_out: "Time Out",
@@ -85,7 +85,11 @@ function PunchModal({
     (result.action === "time_in" || result.action === "time_out")
       ? result.action
       : null;
-  const title = doneAction ? LABEL[doneAction] : next === "time_out" ? LABEL.time_out : LABEL.time_in;
+  const title = doneAction
+    ? LABEL[doneAction]
+    : next === "time_out"
+      ? LABEL.time_out
+      : LABEL.time_in;
 
   const close = () => {
     if (phase === "scanning") void cancelScan();
@@ -152,7 +156,11 @@ function PunchModal({
                 disabled={phase === "submitting"}
                 onClick={close}
               >
-                {phase === "scanning" ? "Cancel" : phase === "submitting" ? "Recording…" : "Close"}
+                {phase === "scanning"
+                  ? "Cancel"
+                  : phase === "submitting"
+                    ? "Recording…"
+                    : "Close"}
               </button>
               {!busy && (
                 <button
@@ -175,32 +183,23 @@ export default function DtrPage() {
   const s = useDtrStore();
   const { status } = useAuthenticator();
   const [open, setOpen] = useState(false);
-  const [issuesOnly, setIssuesOnly] = useState(false);
 
   useEffect(() => {
-    void loadDtr();
+    void loadDtr(1);
   }, []);
 
+  // Derived from the newest unfiltered page, so it stays correct on any page/filter.
   const mine = useMemo(
-    () => selectMine(s.records, s.userId),
-    [s.records, s.userId],
+    () => selectMine(s.latest, s.userId),
+    [s.latest, s.userId],
   );
   const next = selectNextAction(mine);
   const last = mine[0];
   const connected = status.connected && !!status.device;
   const deviceId = status.device?.deviceId;
-  const punchBusy = s.punch.phase === "scanning" || s.punch.phase === "submitting";
+  const punchBusy =
+    s.punch.phase === "scanning" || s.punch.phase === "submitting";
 
-  const rows = issuesOnly
-    ? s.records.filter((r) => r.missed_time_in || r.missed_time_out)
-    : s.records;
-  const dailyHours = new Map<string, number>();
-  for (const record of s.records) {
-    const key = `${record.shift_date}:${record.professor_id ?? record.staff_id ?? ""}`;
-    if (record.time_in && record.time_out) {
-      dailyHours.set(key, (dailyHours.get(key) ?? 0) + Number(record.total_hours || 0));
-    }
-  }
   const multi =
     new Set(s.records.map((r) => r.professor_id ?? r.staff_id)).size > 1;
 
@@ -249,8 +248,9 @@ export default function DtrPage() {
                 <input
                   type="checkbox"
                   className="accent-[#047857]"
-                  checked={issuesOnly}
-                  onChange={(e) => setIssuesOnly(e.target.checked)}
+                  checked={s.missedOnly}
+                  disabled={s.loading}
+                  onChange={(e) => void setDtrMissedOnly(e.target.checked)}
                 />
                 Missed punches only
               </label>
@@ -280,7 +280,7 @@ export default function DtrPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {s.records.map((r) => {
                   const st = rowStatus(r);
                   return (
                     <tr key={r.id} className="border-t border-[#EDEDED]">
@@ -301,7 +301,7 @@ export default function DtrPage() {
                         {r.time_out ? Number(r.total_hours).toFixed(2) : "—"}
                       </td>
                       <td className="py-2 pr-4">
-                        {dailyHours.get(`${r.shift_date}:${r.professor_id ?? r.staff_id ?? ""}`)?.toFixed(2) ?? "0.00"}
+                        {Number(r.daily_hours ?? 0).toFixed(2)}
                       </td>
                       <td className="py-2">
                         <span
@@ -313,7 +313,7 @@ export default function DtrPage() {
                     </tr>
                   );
                 })}
-                {!rows.length && !s.loading && (
+                {!s.records.length && !s.loading && (
                   <tr>
                     <td
                       colSpan={multi ? 7 : 6}
@@ -326,6 +326,14 @@ export default function DtrPage() {
               </tbody>
             </table>
           </div>
+
+          <Pager
+            page={s.page}
+            totalPages={s.totalPages}
+            total={s.total}
+            disabled={s.loading}
+            onChange={(p) => void loadDtr(p)}
+          />
         </section>
       </div>
 

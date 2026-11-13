@@ -18,6 +18,21 @@ interface ApiEnvelope {
   data?: unknown;
 }
 
+export interface PageParams {
+  page?: number;
+  limit?: number;
+}
+
+export interface DtrParams extends PageParams {
+  missed?: boolean;
+}
+
+export interface TransactionParams extends PageParams {
+  emp_code?: string;
+  start_date?: string;
+  end_date?: string;
+}
+
 function assertOk(body: ApiEnvelope) {
   if (body.ok === false) {
     throw new Error(body.message ?? body.error ?? "Request failed.");
@@ -63,10 +78,16 @@ export async function clearAuthenticator(data: ClearPayload) {
   return response.data;
 }
 
-// Admin gets all records, everyone else gets their own.
-// Rows carry missed_time_in / missed_time_out flags.
-export async function fetchDtrRecords() {
-  const response = await apiClient.get("/biometrics/dtr");
+export async function fetchDtrRecords(params: DtrParams = {}) {
+  const response = await apiClient.get("/biometrics/dtr", { params });
+  assertOk(response.data);
+  return response.data;
+}
+
+export async function fetchBiometricsTransactions(
+  params: TransactionParams = {},
+) {
+  const response = await apiClient.get("/biometrics/transactions", { params });
   assertOk(response.data);
   return response.data;
 }
