@@ -17,7 +17,12 @@ export const icon = (path: JSX.Element) => (
   </svg>
 );
 
-export type NavItem = { path: string; label: string; icon: JSX.Element };
+export type NavItem = {
+  path: string;
+  label: string;
+  icon: JSX.Element;
+  children?: { path: string; label: string }[];
+};
 
 export const settingsNav: NavItem[] = [
   {
@@ -66,6 +71,10 @@ export const profMainNav: NavItem[] = [
   {
     path: "/prof/submit",
     label: "Submit",
+    children: [
+      { path: "/prof/submit", label: "Accomplishment Report" },
+      { path: "/submit/dtr", label: "DTR" },
+    ],
     icon: icon(
       <>
         <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />

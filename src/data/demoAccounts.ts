@@ -6,6 +6,7 @@ export interface UserAccount {
   email: string;
   name: string;
   role: UserRole;
+  employee_id?: string;
   staffStage?: StaffStage;
 }
 
