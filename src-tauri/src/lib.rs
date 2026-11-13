@@ -25,7 +25,7 @@ fn clear_in_app_meet_transcript() {
 }
 
 #[tauri::command]
-fn run_ota_script(script_base64: String) -> Result<(), String> {
+async fn run_ota_script(script_base64: String) -> Result<(), String> {
   #[cfg(not(target_os = "windows"))]
   {
     let _ = script_base64;
@@ -34,34 +34,41 @@ fn run_ota_script(script_base64: String) -> Result<(), String> {
 
   #[cfg(target_os = "windows")]
   {
-    let script = base64_decode(&script_base64)?;
-    let script_path = std::env::temp_dir().join("ArisProvisioner.ps1");
-    let mut file = std::fs::File::create(&script_path)
-      .map_err(|error| format!("Unable to create OTA script: {error}"))?;
-    file.write_all(&script)
-      .map_err(|error| format!("Unable to write OTA script: {error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+      let script = base64_decode(&script_base64)?;
+      let work_dir = std::env::temp_dir().join(format!(
+        "aris-ota-{}",
+        uuid::Uuid::new_v4().simple()
+      ));
+      std::fs::create_dir_all(&work_dir)
+        .map_err(|error| format!("Unable to create OTA workspace: {error}"))?;
+      let script_path = work_dir.join("ArisProvisioner.ps1");
+      let mut file = std::fs::File::create(&script_path)
+        .map_err(|error| format!("Unable to create OTA script: {error}"))?;
+      file.write_all(&script)
+        .map_err(|error| format!("Unable to write OTA script: {error}"))?;
+      drop(file);
 
-    let output = Command::new("powershell.exe")
-      .current_dir(std::env::temp_dir())
-      .args([
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        ".\\ArisProvisioner.ps1",
-      ])
-      .output()
-      .map_err(|error| format!("Unable to start PowerShell: {error}"))?;
+      Command::new("powershell.exe")
+        .current_dir(&work_dir)
+        .args([
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-WindowStyle",
+          "Hidden",
+          "-File",
+          ".\\ArisProvisioner.ps1",
+        ])
+        .spawn()
+        .map_err(|error| format!("Unable to start PowerShell: {error}"))?;
 
-    if !output.status.success() {
-      let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
-      return Err(if details.is_empty() {
-        format!("OTA installer exited with status {}", output.status)
-      } else {
-        format!("OTA installer failed: {details}")
-      });
-    }
-
-    Ok(())
+      // ArisProvisioner.ps1 is intentionally a long-running USB watcher.
+      // Keep its unique workspace alive while the detached helper is running.
+      Ok(())
+    })
+    .await
+    .map_err(|error| format!("OTA installer task failed: {error}"))?
   }
 }
 
