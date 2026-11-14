@@ -313,7 +313,7 @@ export default function DtrPage() {
                     </tr>
                   );
                 })}
-                {!rows.length && s.loading && (
+                {!s.records.length && s.loading && (
                   <tr>
                     <td
                       colSpan={multi ? 7 : 6}
@@ -323,7 +323,7 @@ export default function DtrPage() {
                     </td>
                   </tr>
                 )}
-                {!rows.length && !s.loading && (
+                {!s.records.length && !s.loading && (
                   <tr>
                     <td
                       colSpan={multi ? 7 : 6}

@@ -58,11 +58,11 @@ export function parseCourseString(
       let section = "BSIT 2B";
       const secMatch = trimmed.match(/[·\-–]\s*([A-Z0-9\s\-]+?)(?:\s*\(|$)/i);
       if (secMatch && secMatch[1]) {
-        section = secMatch[1].trim();
+        section = secMatch[1].trim().toUpperCase();
       }
       return {
-        courseCode: c.code,
-        courseTitle: c.title,
+        courseCode: c.code.trim().toUpperCase(),
+        courseTitle: c.title.trim().toUpperCase(),
         section,
         units: c.units,
       };
@@ -76,7 +76,7 @@ export function parseCourseString(
     let section = "BSIT 2B";
     const secMatch = trimmed.match(/[·\-–]\s*([A-Z0-9\s\-]+?)(?:\s*\(|$)/i);
     if (secMatch && secMatch[1]) {
-      section = secMatch[1].trim();
+      section = secMatch[1].trim().toUpperCase();
     }
     const titleMatch = trimmed.match(/\(([^)]+)\)/);
     const courseTitle = titleMatch
