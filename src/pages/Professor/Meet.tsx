@@ -14,7 +14,6 @@ import {
   Clock,
   Plus,
   PhoneOff,
-  Sparkles,
   Link as LinkIcon,
   Radio,
   Maximize2,
@@ -235,8 +234,6 @@ export default function ProfMeet() {
   const [joinInput, setJoinInput] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [historySearch, setHistorySearch] = useState("");
-  const [historyPage, setHistoryPage] = useState(1);
 
   // Courses for Teaching Load allocation
   const [availableCourses, setAvailableCourses] = useState<MinimalCourseInfo[]>(
@@ -975,31 +972,12 @@ export default function ProfMeet() {
         timedOut
           ? `Call ended (${realCode}). Time out verified.`
           : currentCall.authIn
-            ? `Call ended (${realCode}). Time out not verified, use "Verify Time Out" in Meeting History.`
+            ? `Call ended (${realCode}). Time out not verified.`
             : `Call ended (${realCode}). Auto-added ${parsedCourse.courseCode} to Teaching Load on Submit page!`,
       );
     } finally {
       isEndingCallRef.current = false;
     }
-  };
-
-  // Fail-safe: verify time out from a history row
-  const handleVerifyTimeOut = async (session: MeetSession) => {
-    if (verify.open || activeCallRef.current) return;
-    if (!authConnected) {
-      setToastMessage("Connect your authenticator first to verify time out.");
-      return;
-    }
-    const authOut = await requestVerify("out");
-    if (!authOut) return;
-    try {
-      await updateMeetingAuthOut(session.id);
-      setToastMessage("Time out verified.");
-    } catch (err) {
-      console.warn("auth_out save failed:", err);
-      setToastMessage("Could not save time out. Try again.");
-    }
-    await loadDbMeetings();
   };
 
   // Automatically end the active session in ARIS when Google Meet window is closed or call ends
@@ -1091,20 +1069,6 @@ export default function ProfMeet() {
   /* Filtered Meetings */
   const upcomingMeetings = meetings.filter(
     (m) => m.status === "Upcoming" || m.status === "In Progress",
-  );
-  const completedMeetings = meetings.filter((m) => m.status === "Completed");
-  const filteredHistory = completedMeetings.filter((meeting) => {
-    const query = historySearch.trim().toLowerCase();
-    if (!query) return true;
-    return [meeting.title, meeting.course, meeting.date, meeting.code]
-      .join(" ")
-      .toLowerCase()
-      .includes(query);
-  });
-  const historyPageCount = Math.max(1, Math.ceil(filteredHistory.length / 5));
-  const paginatedHistory = filteredHistory.slice(
-    (historyPage - 1) * 5,
-    historyPage * 5,
   );
 
   return (
@@ -1870,219 +1834,6 @@ export default function ProfMeet() {
         </aside>
       </div>
 
-      {/* Meetings Schedule Section */}
-      <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2
-            className="text-[16px] font-semibold"
-            style={{ color: "#111c14" }}
-          >
-            Meeting History
-          </h2>
-          <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
-            Completed meetings and their auto-generated transcripts.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <input
-            type="search"
-            value={historySearch}
-            onChange={(e) => {
-              setHistorySearch(e.target.value);
-              setHistoryPage(1);
-            }}
-            placeholder="Search meetings"
-            aria-label="Search meeting history"
-            className="h-9 w-full rounded-xl border border-[#e2e8e4] bg-white px-3 text-[12px] text-[#111c14] outline-none placeholder:text-[#8fa394] focus:border-[#3a7d4e] sm:w-52"
-          />
-          <button
-            type="button"
-            onClick={() => void loadDbMeetings()}
-            disabled={isLoadingMeetings}
-            className="flex items-center gap-1.5 text-[12px] text-[#5a6b5e] hover:text-[#111c14] border border-[#e2e8e4] rounded-xl px-2.5 py-1.5 bg-white hover:bg-[#f7f9f8] transition disabled:opacity-50"
-            title="Sync with PostgreSQL database"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 text-[#3a7d4e] ${isLoadingMeetings ? "animate-spin" : ""}`}
-            />
-            <span>Sync DB</span>
-          </button>
-        </div>
-      </div>
-
-      {isLoadingMeetings ? (
-        <Card className="text-center py-10">
-          <RefreshCw className="h-8 w-8 mx-auto text-[#3a7d4e] animate-spin mb-2 opacity-80" />
-          <p className="text-[14px] font-semibold" style={{ color: "#111c14" }}>
-            Loading meetings from database...
-          </p>
-          <p className="text-[12px] mt-1" style={{ color: "#8fa394" }}>
-            Connecting to PostgreSQL to fetch your verified Google Meet records.
-          </p>
-        </Card>
-      ) : completedMeetings.length === 0 ? (
-        <Card className="text-center py-10">
-          <Calendar className="h-10 w-10 mx-auto text-[#8fa394] mb-2 opacity-60" />
-          <p className="text-[14px] font-semibold" style={{ color: "#111c14" }}>
-            No completed meetings found
-          </p>
-          <p className="text-[12px] mt-1" style={{ color: "#8fa394" }}>
-            Completed meetings and their summaries will appear here.
-          </p>
-        </Card>
-      ) : (
-        <>
-          <div className="overflow-x-auto rounded-2xl border border-[#dce3df] bg-white shadow-sm">
-            <table className="w-full min-w-[900px] text-left">
-              <thead className="bg-[#f7f9f8] text-[11px] uppercase tracking-wider text-[#5a6b5e]">
-                <tr>
-                  <th className="px-4 py-3 font-bold">Meeting</th>
-                  <th className="px-4 py-3 font-bold">Course</th>
-                  <th className="px-4 py-3 font-bold">Date &amp; Time</th>
-                  <th className="px-4 py-3 font-bold">Code</th>
-                  <th className="px-4 py-3 font-bold">Verification</th>
-                  <th className="px-4 py-3 text-right font-bold"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#eef1ef]">
-                {paginatedHistory.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-4 py-10 text-center text-[13px] text-[#8fa394]"
-                    >
-                      No meetings match your search.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedHistory.map((session) => (
-                    <tr
-                      key={session.id}
-                      className="text-[12.5px] text-[#111c14] transition hover:bg-[#fbfcfb]"
-                    >
-                      <td className="px-4 py-3 font-semibold">
-                        {session.title}
-                      </td>
-                      <td className="px-4 py-3 text-[#5a6b5e]">
-                        {session.course}
-                      </td>
-                      <td className="px-4 py-3 text-[#5a6b5e]">
-                        <div>{session.date}</div>
-                        <div className="mt-0.5 text-[11.5px] text-[#8fa394]">
-                          {session.time}{" "}
-                          {session.duration ? `(${session.duration})` : ""}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-[11.5px] text-[#5a6b5e]">
-                        {session.code}
-                      </td>
-                      <td className="px-4 py-3 text-[11.5px]">
-                        {session.authIn ? (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1 text-[#3a7d4e]">
-                              <Fingerprint className="h-3.5 w-3.5" />
-                              Time in verified
-                            </div>
-                            {session.authOut ? (
-                              <div className="flex items-center gap-1 text-[#3a7d4e]">
-                                <Fingerprint className="h-3.5 w-3.5" />
-                                Time out verified
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void handleVerifyTimeOut(session)
-                                }
-                                className="flex items-center gap-1 rounded-lg border border-[#d2e7d8] bg-[#f0f7f2] px-2 py-1 font-semibold text-[#3a7d4e] transition hover:bg-[#e3f0e6]"
-                              >
-                                <Fingerprint className="h-3.5 w-3.5" />
-                                Verify Time Out
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[#8fa394]">Not verified</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <PrimaryButton
-                          onClick={() => navigate("/prof/summaries")}
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          View Summary
-                        </PrimaryButton>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-3 flex items-center justify-between text-[12px] text-[#8fa394]">
-            <span>
-              Showing{" "}
-              {filteredHistory.length === 0 ? 0 : (historyPage - 1) * 5 + 1}-
-              {Math.min(historyPage * 5, filteredHistory.length)} of{" "}
-              {filteredHistory.length}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
-                disabled={historyPage === 1}
-                className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <span className="font-medium text-[#5a6b5e]">
-                Page {historyPage} of {historyPageCount}
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setHistoryPage((page) => Math.min(historyPageCount, page + 1))
-                }
-                disabled={historyPage >= historyPageCount}
-                className="rounded-lg border border-[#e2e8e4] bg-white px-3 py-1.5 font-medium text-[#5a6b5e] transition hover:bg-[#f7f9f8] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Integration Notice to Summaries */}
-      <div className="mt-6 rounded-2xl bg-[#f0f7f2] p-4 border border-[#d2e7d8] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white shadow-sm flex-shrink-0">
-            <Sparkles className="h-5 w-5" style={{ color: BRAND }} />
-          </div>
-          <div>
-            <p
-              className="text-[13px] font-semibold"
-              style={{ color: "#111c14" }}
-            >
-              Automated Meeting Summaries & Transcripts
-            </p>
-            <p className="text-[12px]" style={{ color: "#5a6b5e" }}>
-              Google Meet recordings under {oauthEmail} are transcribed and
-              summarized into Accomplishment Report items automatically.
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => navigate("/prof/summaries")}
-          className="flex items-center gap-1.5 self-start sm:self-auto rounded-xl bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-[#3a7d4e] shadow-sm transition hover:bg-[#fdfdfd] border border-[#d2e7d8]"
-        >
-          Open Summaries →
-        </button>
-      </div>
-
       {/* Fingerprint Verification Modal */}
       <Modal
         isOpen={verify.open}
@@ -2133,7 +1884,7 @@ export default function ProfMeet() {
           <p className="text-[12px] text-[#8fa394]">
             {verify.purpose === "in"
               ? "Verification is required before the meeting can start."
-              : "The meeting has ended. Verify to record your time out. If you skip, you can verify later from Meeting History."}
+              : "The meeting has ended. Verify to record your time out."}
           </p>
         </div>
       </Modal>

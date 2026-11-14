@@ -30,6 +30,7 @@ export interface DtrParams extends PageParams {
 export interface TransactionParams extends PageParams {
   start_date?: string;
   end_date?: string;
+  emp_code?: string;
 }
 
 function assertOk(body: ApiEnvelope) {
