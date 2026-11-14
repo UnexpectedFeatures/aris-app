@@ -28,7 +28,6 @@ export interface DtrParams extends PageParams {
 }
 
 export interface TransactionParams extends PageParams {
-  emp_code?: string;
   start_date?: string;
   end_date?: string;
 }

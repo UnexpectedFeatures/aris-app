@@ -19,11 +19,7 @@ export default function BiometricsTransactionsPage() {
     void loadTransactions(1);
   }, []);
 
-  const hasFilters = !!(
-    s.filters.emp_code ||
-    s.filters.start_date ||
-    s.filters.end_date
-  );
+  const hasFilters = !!(s.filters.start_date || s.filters.end_date);
 
   return (
     <div className="min-h-full bg-[#F5F5F5] text-[#1E293B]">
@@ -52,16 +48,6 @@ export default function BiometricsTransactionsPage() {
               void applyTransactionFilters(draft);
             }}
           >
-            <label className="grid gap-1 text-xs text-[#64748B]">
-              Employee code
-              <input
-                className={`${inputCls} w-32`}
-                value={draft.emp_code}
-                onChange={(e) =>
-                  setDraft({ ...draft, emp_code: e.target.value })
-                }
-              />
-            </label>
             <label className="grid gap-1 text-xs text-[#64748B]">
               Start date
               <input
@@ -114,6 +100,7 @@ export default function BiometricsTransactionsPage() {
                   <th className="py-2 pr-4">Employee</th>
                   <th className="py-2 pr-4">Verify</th>
                   <th className="py-2 pr-4">Area</th>
+                  <th className="py-2 pr-4">State</th>
                   <th className="py-2">Terminal</th>
                 </tr>
               </thead>
@@ -136,6 +123,9 @@ export default function BiometricsTransactionsPage() {
                         </span>
                       </td>
                       <td className="py-2 pr-4">{r.area_alias ?? "—"}</td>
+                      <td className="py-2 pr-4">
+                        {r.punch_state_display ?? "—"}
+                      </td>
                       <td className="py-2 text-xs text-[#64748B]">
                         {r.terminal_sn}
                       </td>

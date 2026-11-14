@@ -1,22 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { useAuth } from "@/app/authContext";
 import { PageTitle } from "@/components/ui";
+import Pager from "@/components/theme";
 import {
-  fetchBiometricsTransactions,
-  type TransactionParams,
-} from "@/services/biometricsService";
-import {
+  applyTransactionFilters,
   formatPunch,
-  type BiometricTransaction,
+  loadTransactions,
+  useTransactionsStore,
 } from "@/stores/biometricsTransactionsStore";
 
 type DtrPeriod = "first-half" | "second-half";
-type TransactionResponse = {
-  data?: BiometricTransaction[];
-  success?: boolean;
-  message?: string;
-};
 
 function currentMonth() {
   const now = new Date();
@@ -61,73 +54,41 @@ const fieldClass =
   "mt-1 h-10 rounded-xl border border-[#cad5cc] bg-white px-3 text-[13px] text-[#111c14] outline-none focus:border-[#009668]";
 
 export default function DtrSubmitPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
+  const s = useTransactionsStore();
   const [month, setMonth] = useState(currentMonth);
   const [period, setPeriod] = useState<DtrPeriod>("first-half");
-  const [records, setRecords] = useState<BiometricTransaction[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasFetched, setHasFetched] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
-  const requestId = useRef(0);
 
-  useEffect(
-    () => () => {
-      requestId.current += 1;
-    },
-    [],
-  );
+  const loading = s.loading;
+  const error = localError ?? s.error;
+  const records = loaded ? s.records : [];
 
-  const fetchDtr = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const request = ++requestId.current;
-    setLoading(true);
-    setError(null);
-    setRecords([]);
+  const fetchRange = async () => {
     setSubmitNotice(null);
-    setHasFetched(true);
-
-    const employeeCode = user.employee_id?.trim();
-    if (!employeeCode) {
-      setLoading(false);
-      setRecords([]);
-      setError("Your employee code is not available in your signed-in profile.");
-      return;
-    }
+    setLocalError(null);
 
     try {
       const { startDate, endDate } = getDtrDateRange(month, period);
-      const params: TransactionParams = {
-        page: 1,
-        limit: 100,
-        emp_code: employeeCode,
+      await applyTransactionFilters({
+        emp_code: "",
         start_date: startDate,
-        end_date: `${endDate}T23:59:59.999Z`,
-      };
-      const response = (await fetchBiometricsTransactions(
-        params,
-      )) as TransactionResponse;
-      if (response.success === false) {
-        throw new Error(response.message || "Failed to load DTR transactions.");
-      }
-      if (!Array.isArray(response.data)) {
-        throw new Error("The DTR transactions response was invalid.");
-      }
-      if (request === requestId.current) setRecords(response.data);
-    } catch (fetchError) {
-      if (request === requestId.current) {
-        setRecords([]);
-        setError(
-          fetchError instanceof Error
-            ? fetchError.message
-            : "Failed to load DTR transactions.",
-        );
-      }
+        end_date: endDate,
+      });
+    } catch (e) {
+      setLocalError(
+        e instanceof Error ? e.message : "Failed to load DTR transactions.",
+      );
     } finally {
-      if (request === requestId.current) setLoading(false);
+      setLoaded(true);
     }
   };
+
+  useEffect(() => {
+    void fetchRange();
+  }, [month, period]);
 
   const handleSubmit = () => {
     setSubmitNotice("DTR submission is not available yet.");
@@ -141,7 +102,10 @@ export default function DtrSubmitPage() {
       />
 
       <form
-        onSubmit={fetchDtr}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void fetchRange();
+        }}
         className="mb-6 rounded-2xl border border-[#e8eeea] bg-white p-5 shadow-sm"
         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
       >
@@ -152,7 +116,7 @@ export default function DtrSubmitPage() {
               type="month"
               required
               value={month}
-              onChange={(event) => setMonth(event.target.value)}
+              onChange={(e) => setMonth(e.target.value)}
               className={fieldClass}
             />
           </label>
@@ -160,9 +124,7 @@ export default function DtrSubmitPage() {
             Period
             <select
               value={period}
-              onChange={(event) =>
-                setPeriod(event.target.value as DtrPeriod)
-              }
+              onChange={(e) => setPeriod(e.target.value as DtrPeriod)}
               className={fieldClass}
             >
               <option value="first-half">1–15</option>
@@ -175,7 +137,7 @@ export default function DtrSubmitPage() {
             className="h-10 rounded-xl px-5 text-[13px] font-bold text-white transition-opacity disabled:opacity-60"
             style={{ background: "#009668" }}
           >
-            {loading ? "Fetching…" : "Fetch DTR"}
+            {loading ? "Loading…" : "Refresh"}
           </button>
         </div>
       </form>
@@ -188,9 +150,9 @@ export default function DtrSubmitPage() {
           <h2 className="text-[15px] font-bold text-[#111c14]">
             Biometric Transactions
           </h2>
-          {hasFetched && !error && (
+          {loaded && !error && (
             <span className="text-[12px] text-[#718076]">
-              {records.length} {records.length === 1 ? "record" : "records"}
+              {s.total} {s.total === 1 ? "record" : "records"}
             </span>
           )}
         </div>
@@ -220,6 +182,7 @@ export default function DtrSubmitPage() {
                 <th className="py-2 pr-4">Time</th>
                 <th className="py-2 pr-4">Verify</th>
                 <th className="py-2 pr-4">Area</th>
+                <th className="py-2 pr-4">State</th>
                 <th className="py-2">Terminal</th>
               </tr>
             </thead>
@@ -239,45 +202,48 @@ export default function DtrSubmitPage() {
                       </span>
                     </td>
                     <td className="py-2.5 pr-4">{record.area_alias ?? "—"}</td>
+                    <td className="py-2.5 pr-4">
+                      {record.punch_state_display ?? "—"}
+                    </td>
                     <td className="py-2.5 text-[12px] text-[#718076]">
                       {record.terminal_sn}
                     </td>
                   </tr>
                 );
               })}
-              {loading && (
+              {(loading || !loaded) && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="py-8 text-center text-[13px] text-[#718076]"
                   >
                     Loading transactions…
                   </td>
                 </tr>
               )}
-              {!loading && !error && hasFetched && records.length === 0 && (
+              {loaded && !loading && !error && records.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="py-8 text-center text-[13px] text-[#718076]"
                   >
                     No transactions found for this period.
                   </td>
                 </tr>
               )}
-              {!loading && !error && !hasFetched && (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="py-8 text-center text-[13px] text-[#718076]"
-                  >
-                    Choose a month and period, then fetch your transactions.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
+
+        {loaded && !localError && (
+          <Pager
+            page={s.page}
+            totalPages={s.totalPages}
+            total={s.total}
+            disabled={s.loading}
+            onChange={(p) => void loadTransactions(p)}
+          />
+        )}
       </section>
 
       <footer
@@ -310,9 +276,11 @@ export default function DtrSubmitPage() {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={!hasFetched || loading || !!error || records.length === 0}
+            disabled={!loaded || loading || !!error || records.length === 0}
             className="rounded-xl px-6 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-            style={{ background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)" }}
+            style={{
+              background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
+            }}
           >
             Submit DTR
           </button>
