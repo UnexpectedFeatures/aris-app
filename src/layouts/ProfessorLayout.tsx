@@ -18,6 +18,29 @@ import {
 import type { UserAccount } from "@/data/demoAccounts";
 import { GhostButton, Modal, PrimaryButton } from "@/components/ui";
 
+const isPathOrDescendant = (pathname: string, path: string) =>
+  pathname === path || pathname.startsWith(`${path}/`);
+
+const isSubmitRoute = (pathname: string) =>
+  isPathOrDescendant(pathname, "/submit") ||
+  isPathOrDescendant(pathname, "/prof/submit");
+
+function isSubmitChildActive(pathname: string, path: string, label: string) {
+  if (label === "Accomplishment Report") {
+    return (
+      pathname === path ||
+      isPathOrDescendant(pathname, "/submit/accomplishment")
+    );
+  }
+  if (label === "DTR") {
+    return (
+      isPathOrDescendant(pathname, path) ||
+      isPathOrDescendant(pathname, "/prof/submit/dtr")
+    );
+  }
+  return pathname === path;
+}
+
 export default function ProfRoot({
   onSignOut,
   user,
@@ -47,11 +70,20 @@ export default function ProfRoot({
   };
 
   const NavButton = ({ item }: { item: NavItem }) => {
-    const active = location.pathname === item.path;
+    const hasSubmenu = !!item.children?.length;
+    const submenuOpen = hasSubmenu && isSubmitRoute(location.pathname);
+    const active =
+      location.pathname === item.path ||
+      submenuOpen ||
+      !!item.children?.some((child) =>
+        isSubmitChildActive(location.pathname, child.path, child.label),
+      );
     return (
       <button
         onClick={() => navigate(item.path)}
-        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all duration-150 text-[13px] font-medium mb-0.5"
+        aria-expanded={hasSubmenu ? submenuOpen : undefined}
+        aria-controls={hasSubmenu ? "submit-navigation-submenu" : undefined}
+        className="group w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all duration-150 text-[13px] font-medium mb-0.5"
         style={{
           background: active ? "#f0f7f2" : "transparent",
           color: active ? BRAND : "#5a6b5e",
@@ -59,16 +91,33 @@ export default function ProfRoot({
       >
         <span style={{ opacity: active ? 1 : 0.65 }}>{item.icon}</span>
         <span className="flex-1">{item.label}</span>
-        {active && (
+        {hasSubmenu ? (
           <svg
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
-            className="w-3.5 h-3.5"
+            className={`h-3.5 w-3.5 transition-[opacity,transform] duration-200 ${
+              active ? "opacity-100" : "opacity-0"
+            } group-focus:opacity-100 ${
+              submenuOpen ? "rotate-90" : ""
+            }`}
+            aria-hidden="true"
           >
             <path d="M9 18l6-6-6-6" />
           </svg>
+        ) : (
+          active && (
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="w-3.5 h-3.5"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          )
         )}
       </button>
     );
@@ -121,7 +170,49 @@ export default function ProfRoot({
                 Main
               </p>
               {mainNav.map((item) => (
-                <NavButton key={item.path} item={item} />
+                <div key={item.path}>
+                  <NavButton item={item} />
+                  {item.children && (
+                    <div
+                      id="submit-navigation-submenu"
+                      aria-hidden={!isSubmitRoute(location.pathname)}
+                      className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${
+                        isSubmitRoute(location.pathname)
+                          ? "grid-rows-[1fr] opacity-100"
+                          : "grid-rows-[0fr] opacity-0"
+                      }`}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        {item.children.map((child) => {
+                          const active = isSubmitChildActive(
+                            location.pathname,
+                            child.path,
+                            child.label,
+                          );
+                          return (
+                            <button
+                              key={child.path}
+                              onClick={() => navigate(child.path)}
+                              aria-current={active ? "page" : undefined}
+                              tabIndex={
+                                isSubmitRoute(location.pathname) ? 0 : -1
+                              }
+                              className={`mb-0.5 w-full rounded-xl py-1.5 pl-11 pr-3 text-left text-[12px] transition-colors ${
+                                active ? "font-semibold" : "font-normal"
+                              }`}
+                              style={{
+                                background: active ? "#f0f7f2" : "transparent",
+                                color: active ? BRAND : "#718076",
+                              }}
+                            >
+                              {child.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
             </>
           )}
@@ -233,7 +324,16 @@ export default function ProfRoot({
           className="lg:hidden flex shrink-0 gap-1 overflow-x-auto pb-2"
         >
           {[
-            ...mainNav,
+            ...mainNav.flatMap((item) => {
+              const submenuItems =
+                item.children && isSubmitRoute(location.pathname)
+                  ? item.children.map((child) => ({
+                      ...child,
+                      icon: item.icon,
+                    }))
+                  : [];
+              return [item, ...submenuItems];
+            }),
             ...authenticatorNav,
             ...meetNav,
             ...helpNav,

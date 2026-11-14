@@ -52,6 +52,7 @@ export async function signInWithGoogle(idToken: string): Promise<AuthSession> {
 			email: payload.user.email,
 			name,
 			role: "professor",
+			employee_id: payload.user.employee_id,
 		},
 	};
 }
