@@ -14,7 +14,6 @@ import StaffOverview from "@/pages/Staff/Overview";
 import StaffApprovals from "@/pages/Staff/Approvals";
 import StaffAnnouncements from "@/pages/Professor/Announcements";
 import AuthenticatorPage from "@/pages/Biometrics/AuthenticatorPage";
-import DtrPage from "@/pages/Biometrics/DtrPage";
 import BiometricsTransactionsPage from "@/pages/Biometrics/BiometricsTransactionsPage";
 
 function StaffRootWithAuth() {

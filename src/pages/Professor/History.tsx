@@ -1,9 +1,10 @@
-import { useState, useMemo, type ReactNode } from "react"
-import { useNavigate } from "react-router"
-import { useAuth } from "@/app/authContext"
-import { BRAND } from "@/config/navigation"
-import { useResource } from "@/hooks/useResource"
-import { type AuditLog, type AuditApiResponse } from "@/data/demoAuditLogs"
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useState, useMemo, type ReactNode } from "react";
+import { useNavigate } from "react-router";
+import { useAuth } from "@/app/authContext";
+import { BRAND } from "@/config/navigation";
+import { useResource } from "@/hooks/useResource";
+import { type AuditLog, type AuditApiResponse } from "@/data/demoAuditLogs";
 import {
   Card,
   PageTitle,
@@ -19,48 +20,48 @@ import {
   type RecordKind,
   type RecordPayload,
   type StatusKind,
-} from "@/components/ui"
+} from "@/components/ui";
 
 type HistoryRecord = {
-  id?: string
-  type: RecordKind
-  period: string
-  units: string
-  submitted: string
-  status: StatusKind
-  stage?: string
-  currentStage?: string
+  id?: string;
+  type: RecordKind;
+  period: string;
+  units: string;
+  submitted: string;
+  status: StatusKind;
+  stage?: string;
+  currentStage?: string;
   /** One-line summary of the event shown in the detail modal. */
-  event: string
-  record: RecordPayload
-}
+  event: string;
+  record: RecordPayload;
+};
 
 export type LatestSubmission = {
-  type: RecordKind
-  period: string
-  units: string
-  reference: string
-  filed: string
-  status: StatusKind
-  currentStage: string
-  currentSince: string
-  remark?: string
-  reviewer?: string
-  rawRecord?: HistoryRecord
-}
+  type: RecordKind;
+  period: string;
+  units: string;
+  reference: string;
+  filed: string;
+  status: StatusKind;
+  currentStage: string;
+  currentSince: string;
+  remark?: string;
+  reviewer?: string;
+  rawRecord?: HistoryRecord;
+};
 
 /* ─── Latest submission routing ────────────────────────────────────────────── */
 
-type StageState = "done" | "current" | "pending" | "rejected"
+type StageState = "done" | "current" | "pending" | "rejected";
 
 type RoutingStage = {
-  label: string
-  owner: string
-  note: string
-  when?: string
-  state: StageState
-  icon: ReactNode
-}
+  label: string;
+  owner: string;
+  note: string;
+  when?: string;
+  state: StageState;
+  icon: ReactNode;
+};
 
 const stageIcon = (path: ReactNode) => (
   <svg
@@ -74,15 +75,16 @@ const stageIcon = (path: ReactNode) => (
   >
     {path}
   </svg>
-)
+);
 
-const AMBER = "#d99a2b"
-const RED = "#c0392b"
+const AMBER = "#d99a2b";
+const RED = "#c0392b";
 
 function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
-  const stage = (submission.currentStage || "Checker").toLowerCase()
-  const isApproved = submission.status === "Approved"
-  const isRejected = submission.status === "Rejected" || submission.status === "Disapproved"
+  const stage = (submission.currentStage || "Checker").toLowerCase();
+  const isApproved = submission.status === "Approved";
+  const isRejected =
+    submission.status === "Rejected" || submission.status === "Disapproved";
 
   // Stage order:
   // 0: Device
@@ -94,18 +96,21 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
   const stageRank = isApproved
     ? 5
     : stage.includes("account") || stage.includes("payroll")
-    ? 4
-    : stage.includes("hr") || stage.includes("human")
-    ? 3
-    : stage.includes("sec") || stage.includes("dept") || stage.includes("department")
-    ? 2
-    : 1
+      ? 4
+      : stage.includes("hr") || stage.includes("human")
+        ? 3
+        : stage.includes("sec") ||
+            stage.includes("dept") ||
+            stage.includes("department")
+          ? 2
+          : 1;
 
   const getState = (rank: number): StageState => {
-    if (rank < stageRank) return "done"
-    if (rank === stageRank) return isApproved ? "done" : isRejected ? "rejected" : "current"
-    return "pending"
-  }
+    if (rank < stageRank) return "done";
+    if (rank === stageRank)
+      return isApproved ? "done" : isRejected ? "rejected" : "current";
+    return "pending";
+  };
 
   return [
     {
@@ -128,11 +133,16 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
         getState(1) === "done"
           ? "Verified"
           : getState(1) === "current"
-          ? "Reviewing entries"
-          : getState(1) === "rejected"
-          ? "Disapproved"
-          : "Awaiting review",
-      when: getState(1) === "done" || getState(1) === "current" || getState(1) === "rejected" ? submission.filed : undefined,
+            ? "Reviewing entries"
+            : getState(1) === "rejected"
+              ? "Disapproved"
+              : "Awaiting review",
+      when:
+        getState(1) === "done" ||
+        getState(1) === "current" ||
+        getState(1) === "rejected"
+          ? submission.filed
+          : undefined,
       state: getState(1),
       icon: stageIcon(
         <>
@@ -148,11 +158,14 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
         getState(2) === "done"
           ? "Endorsed"
           : getState(2) === "current"
-          ? "Routing to HR"
-          : getState(2) === "rejected"
-          ? "Disapproved"
-          : "Awaiting checker",
-      when: getState(2) === "current" || (getState(2) === "done" && stageRank > 2) ? submission.currentSince : undefined,
+            ? "Routing to HR"
+            : getState(2) === "rejected"
+              ? "Disapproved"
+              : "Awaiting checker",
+      when:
+        getState(2) === "current" || (getState(2) === "done" && stageRank > 2)
+          ? submission.currentSince
+          : undefined,
       state: getState(2),
       icon: stageIcon(
         <>
@@ -167,11 +180,14 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
         getState(3) === "done"
           ? "Verified & Endorsed"
           : getState(3) === "current"
-          ? "Auditing records"
-          : getState(3) === "rejected"
-          ? "Disapproved"
-          : "Awaiting endorsement",
-      when: getState(3) === "current" || (getState(3) === "done" && stageRank > 3) ? submission.currentSince : undefined,
+            ? "Auditing records"
+            : getState(3) === "rejected"
+              ? "Disapproved"
+              : "Awaiting endorsement",
+      when:
+        getState(3) === "current" || (getState(3) === "done" && stageRank > 3)
+          ? submission.currentSince
+          : undefined,
       state: getState(3),
       icon: stageIcon(
         <>
@@ -185,11 +201,14 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
       note: isApproved
         ? "Cleared for payroll"
         : getState(4) === "current"
-        ? "Payroll computation"
-        : getState(4) === "rejected"
-        ? "Disapproved"
-        : "Awaiting HR approval",
-      when: isApproved || getState(4) === "current" ? submission.currentSince : undefined,
+          ? "Payroll computation"
+          : getState(4) === "rejected"
+            ? "Disapproved"
+            : "Awaiting HR approval",
+      when:
+        isApproved || getState(4) === "current"
+          ? submission.currentSince
+          : undefined,
       state: getState(4),
       icon: stageIcon(
         <>
@@ -198,7 +217,7 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
         </>,
       ),
     },
-  ]
+  ];
 }
 
 function StageNode({ s }: { s: RoutingStage }) {
@@ -206,20 +225,26 @@ function StageNode({ s }: { s: RoutingStage }) {
     s.state === "done"
       ? BRAND
       : s.state === "current"
-      ? AMBER
-      : s.state === "rejected"
-      ? RED
-      : "#c8d2cb"
+        ? AMBER
+        : s.state === "rejected"
+          ? RED
+          : "#c8d2cb";
 
   return (
     <div className="flex flex-col items-center text-center px-2">
       <span
         className="relative z-10 w-9 h-9 rounded-full flex items-center justify-center transition-all"
         style={{
-          background: s.state === "done" ? BRAND : s.state === "rejected" ? RED : "#fff",
+          background:
+            s.state === "done" ? BRAND : s.state === "rejected" ? RED : "#fff",
           border: `2px solid ${accent}`,
           color: s.state === "done" || s.state === "rejected" ? "#fff" : accent,
-          boxShadow: s.state === "current" ? `0 0 0 4px ${AMBER}22` : s.state === "rejected" ? `0 0 0 4px ${RED}22` : "none",
+          boxShadow:
+            s.state === "current"
+              ? `0 0 0 4px ${AMBER}22`
+              : s.state === "rejected"
+                ? `0 0 0 4px ${RED}22`
+                : "none",
         }}
       >
         {s.state === "done" ? (
@@ -258,10 +283,10 @@ function StageNode({ s }: { s: RoutingStage }) {
             s.state === "current"
               ? "#996515"
               : s.state === "rejected"
-              ? "#c0392b"
-              : s.state === "done"
-              ? "#111c14"
-              : "#b6c3ba",
+                ? "#c0392b"
+                : s.state === "done"
+                  ? "#111c14"
+                  : "#b6c3ba",
         }}
       >
         {s.label}
@@ -276,8 +301,8 @@ function StageNode({ s }: { s: RoutingStage }) {
             s.state === "pending"
               ? "#c8d2cb"
               : s.state === "rejected"
-              ? "#c0392b"
-              : "#5a6b5e",
+                ? "#c0392b"
+                : "#5a6b5e",
         }}
       >
         {s.note}
@@ -289,15 +314,15 @@ function StageNode({ s }: { s: RoutingStage }) {
         {s.when ?? "—"}
       </p>
     </div>
-  )
+  );
 }
 
 function LatestSubmissionCard({
   submission,
   onRevise,
 }: {
-  submission: LatestSubmission | null
-  onRevise?: (rec: HistoryRecord) => void
+  submission: LatestSubmission | null;
+  onRevise?: (rec: HistoryRecord) => void;
 }) {
   if (!submission || !submission.reference) {
     return (
@@ -306,35 +331,39 @@ function LatestSubmissionCard({
           No active submissions filed yet
         </p>
         <p className="text-[12px] mt-1" style={{ color: "#8fa394" }}>
-          Submit an Accomplishment Report or DTR to track real-time approval routing.
+          Submit an Accomplishment Report or DTR to track real-time approval
+          routing.
         </p>
       </Card>
-    )
+    );
   }
 
-  const isApproved = submission.status === "Approved"
-  const isRejected = submission.status === "Rejected" || submission.status === "Disapproved"
-  const routingStages = getRoutingStages(submission)
+  const isApproved = submission.status === "Approved";
+  const isRejected =
+    submission.status === "Rejected" || submission.status === "Disapproved";
+  const routingStages = getRoutingStages(submission);
 
-  const stage = (submission.currentStage || "Checker").toLowerCase()
+  const stage = (submission.currentStage || "Checker").toLowerCase();
   const stageRank = isApproved
     ? 5
     : stage.includes("account") || stage.includes("payroll")
-    ? 4
-    : stage.includes("hr") || stage.includes("human")
-    ? 3
-    : stage.includes("sec") || stage.includes("dept") || stage.includes("department")
-    ? 2
-    : 1
+      ? 4
+      : stage.includes("hr") || stage.includes("human")
+        ? 3
+        : stage.includes("sec") ||
+            stage.includes("dept") ||
+            stage.includes("department")
+          ? 2
+          : 1;
 
   const nextStop =
     stageRank === 1
       ? "College Secretary"
       : stageRank === 2
-      ? "Human Resources"
-      : stageRank === 3
-      ? "Accounting (Payroll Office)"
-      : "Payroll Disbursement"
+        ? "Human Resources"
+        : stageRank === 3
+          ? "Accounting (Payroll Office)"
+          : "Payroll Disbursement";
 
   return (
     <Card className="mb-4">
@@ -344,10 +373,11 @@ function LatestSubmissionCard({
             Latest Submission
           </p>
           <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
-            {submission.type} · {submission.period} · {submission.units} · filed {submission.filed}
+            {submission.type} · {submission.period} · {submission.units} · filed{" "}
+            {submission.filed}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <Badge tone={statusTone[submission.status]} dot>
             {submission.status}
           </Badge>
@@ -363,22 +393,49 @@ function LatestSubmissionCard({
       <div
         className="flex items-center gap-2 mt-3.5 px-3.5 py-2.5 rounded-xl text-[12px]"
         style={{
-          background: isApproved ? "#eaf4ee" : isRejected ? "#fbecec" : "#fbf1de",
+          background: isApproved
+            ? "#eaf4ee"
+            : isRejected
+              ? "#fbecec"
+              : "#fbf1de",
           color: isApproved ? "#2f7043" : isRejected ? "#c0392b" : "#996515",
         }}
       >
         {isApproved ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 flex-shrink-0">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="w-4 h-4 shrink-0"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M5 13l4 4L19 7"
+            />
           </svg>
         ) : isRejected ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 flex-shrink-0">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="w-4 h-4 shrink-0"
+          >
             <circle cx="12" cy="12" r="9" />
             <line x1="15" y1="9" x2="9" y2="15" />
             <line x1="9" y1="9" x2="15" y2="15" />
           </svg>
         ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-4 h-4 flex-shrink-0">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            className="w-4 h-4 shrink-0"
+          >
             <circle cx="12" cy="12" r="9" />
             <path d="M12 7v5l3 2" />
           </svg>
@@ -387,8 +444,8 @@ function LatestSubmissionCard({
           {isApproved
             ? "Fully verified and approved for payroll processing."
             : isRejected
-            ? `Disapproved at the ${submission.currentStage} stage — returned for faculty correction.`
-            : `Currently with the ${submission.currentStage} since ${submission.currentSince} — next stop: ${nextStop}.`}
+              ? `Disapproved at the ${submission.currentStage} stage — returned for faculty correction.`
+              : `Currently with the ${submission.currentStage} since ${submission.currentSince} — next stop: ${nextStop}.`}
         </span>
       </div>
 
@@ -402,7 +459,13 @@ function LatestSubmissionCard({
         >
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#c0392b]">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="w-3.5 h-3.5">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                className="w-3.5 h-3.5"
+              >
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="8" x2="12" y2="12" />
                 <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -410,11 +473,16 @@ function LatestSubmissionCard({
               Rejection Reason &amp; Reviewer Feedback:
             </div>
             <p className="text-[13px] font-semibold text-[#9b1c1c] mt-1 leading-snug">
-              {submission.remark || "Returned for faculty correction. Please update the necessary entries and resubmit."}
+              {submission.remark ||
+                "Returned for faculty correction. Please update the necessary entries and resubmit."}
             </p>
             {submission.reviewer && (
               <p className="text-[11.5px] text-[#8fa394] mt-1">
-                Returned by: <span className="font-semibold text-[#5a6b5e]">{submission.reviewer}</span> ({submission.currentStage})
+                Returned by:{" "}
+                <span className="font-semibold text-[#5a6b5e]">
+                  {submission.reviewer}
+                </span>{" "}
+                ({submission.currentStage})
               </p>
             )}
           </div>
@@ -422,10 +490,16 @@ function LatestSubmissionCard({
             <button
               type="button"
               onClick={() => onRevise(submission.rawRecord!)}
-              className="px-4 py-2 rounded-xl text-[12.5px] font-bold text-white shadow-xs transition-transform active:scale-98 flex items-center justify-center gap-2 flex-shrink-0 cursor-pointer"
+              className="px-4 py-2 rounded-xl text-[12.5px] font-bold text-white shadow-xs transition-transform active:scale-98 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
               style={{ background: "#c0392b" }}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="w-4 h-4"
+              >
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
@@ -440,10 +514,14 @@ function LatestSubmissionCard({
           {/* connector rail: from the centre of each stage to the next */}
           <div className="absolute top-[17px] left-0 right-0 h-[2px]">
             {[0, 1, 2, 3].map((i) => {
-              const fromDone = routingStages[i].state === "done"
-              const toReached = routingStages[i + 1].state !== "pending"
-              const toRejected = routingStages[i + 1].state === "rejected"
-              const color = toRejected ? RED : fromDone && toReached ? BRAND : "#e2e8e4"
+              const fromDone = routingStages[i].state === "done";
+              const toReached = routingStages[i + 1].state !== "pending";
+              const toRejected = routingStages[i + 1].state === "rejected";
+              const color = toRejected
+                ? RED
+                : fromDone && toReached
+                  ? BRAND
+                  : "#e2e8e4";
 
               return (
                 <span
@@ -455,7 +533,7 @@ function LatestSubmissionCard({
                     background: color,
                   }}
                 />
-              )
+              );
             })}
           </div>
           <div className="relative grid grid-cols-5">
@@ -470,60 +548,73 @@ function LatestSubmissionCard({
         The record moves automatically to the next stage upon verification.
       </p>
     </Card>
-  )
+  );
 }
 
 export default function ProfHistory() {
-  const navigate = useNavigate()
-  const { user } = useAuth()
+  const navigate = useNavigate();
+  const { user } = useAuth();
 
   const handleRevise = (recordToRevise: HistoryRecord) => {
-    setSelected(null)
-    navigate("/prof/submit", { state: { reviseSubmission: recordToRevise } })
-  }
-  const emailQuery = user?.email ? `?email=${encodeURIComponent(user.email)}` : ""
+    setSelected(null);
+    navigate("/prof/submit", { state: { reviseSubmission: recordToRevise } });
+  };
+  const emailQuery = user?.email
+    ? `?email=${encodeURIComponent(user.email)}`
+    : "";
   // Sourced directly from /audit, identical to how aris-web in audit logs gets it
-  const { data: rawData, loading, reload } = useResource<AuditApiResponse | AuditLog[]>(
-    `/audit${emailQuery}`,
-    [],
-  )
+  const {
+    data: rawData,
+    loading,
+    reload,
+  } = useResource<AuditApiResponse | AuditLog[]>(`/audit${emailQuery}`, []);
 
   const logs: AuditLog[] = useMemo(() => {
-    if (Array.isArray(rawData)) return rawData
+    if (Array.isArray(rawData)) return rawData;
     if (rawData && Array.isArray((rawData as AuditApiResponse).logs)) {
-      return (rawData as AuditApiResponse).logs
+      return (rawData as AuditApiResponse).logs;
     }
-    return []
-  }, [rawData])
+    return [];
+  }, [rawData]);
 
   const allRecords: HistoryRecord[] = useMemo(() => {
     return logs.map((log: any) => {
       if (log.units && log.period && log.submitted && log.status) {
-        return log as HistoryRecord
+        return log as HistoryRecord;
       }
-      const stageKey = (log.stage_key || log.approval_stage || "").toUpperCase()
+      const stageKey = (
+        log.stage_key ||
+        log.approval_stage ||
+        ""
+      ).toUpperCase();
       const stageOrder =
         log.stage_order ||
-        (stageKey === "AR-AP-STG-4" ? 4 : stageKey === "AR-AP-STG-3" ? 3 : stageKey === "AR-AP-STG-2" ? 2 : 1)
+        (stageKey === "AR-AP-STG-4"
+          ? 4
+          : stageKey === "AR-AP-STG-3"
+            ? 3
+            : stageKey === "AR-AP-STG-2"
+              ? 2
+              : 1);
 
       const stageRole =
         log.stage_role ||
         (stageOrder === 4
           ? "Accounting"
           : stageOrder === 3
-          ? "HR"
-          : stageOrder === 2
-          ? "Secretary"
-          : "Checker")
+            ? "HR"
+            : stageOrder === 2
+              ? "Secretary"
+              : "Checker");
 
       const status: StatusKind =
         log.result === "Missing"
           ? "Flagged"
           : log.result === "Approved"
-          ? "Approved"
-          : log.result === "Rejected" || log.result === "Disapproved"
-          ? "Rejected"
-          : "Pending"
+            ? "Approved"
+            : log.result === "Rejected" || log.result === "Disapproved"
+              ? "Rejected"
+              : "Pending";
 
       const units = log.target?.includes("·")
         ? log.target.split("·")[1].trim()
@@ -531,11 +622,13 @@ export default function ProfHistory() {
           ? `${log.record.tables.length} course${log.record.tables.length === 1 ? "" : "s"}`
           : log.type === "DTR"
             ? "22 days"
-            : "3 courses"
+            : "3 courses";
       const period =
         log.record?.period ||
-        (log.target?.includes("·") ? log.target.split("·")[0].trim() : "Current Cycle")
-      const submitted = log.record?.reviewedAt || log.time || "Recently"
+        (log.target?.includes("·")
+          ? log.target.split("·")[0].trim()
+          : "Current Cycle");
+      const submitted = log.record?.reviewedAt || log.time || "Recently";
 
       return {
         id: log.id || log.record?.reference,
@@ -546,69 +639,79 @@ export default function ProfHistory() {
         status,
         stage: stageRole,
         currentStage: stageRole,
-        event: log.action ? `${log.action} · ${log.target}` : log.target || `${log.type} submitted`,
+        event: log.action
+          ? `${log.action} · ${log.target}`
+          : log.target || `${log.type} submitted`,
         record: log.record,
-      } as HistoryRecord
-    })
-  }, [logs])
+      } as HistoryRecord;
+    });
+  }, [logs]);
 
   // Scope to the logged in professor if matched, and deduplicate resubmitted records
   const records: HistoryRecord[] = useMemo(() => {
-    let source = allRecords
+    let source = allRecords;
     if (user?.email || user?.name) {
-      const userEmail = user?.email?.toLowerCase().trim()
-      const userName = user?.name?.toLowerCase().trim()
+      const userEmail = user?.email?.toLowerCase().trim();
+      const userName = user?.name?.toLowerCase().trim();
 
       const matched = allRecords.filter((r) => {
-        const rec = r.record
-        if (!rec) return false
-        const fName = rec.facultyName?.toLowerCase().trim() || ""
-        const email = ((rec as any).email || "").toLowerCase().trim()
+        const rec = r.record;
+        if (!rec) return false;
+        const fName = rec.facultyName?.toLowerCase().trim() || "";
+        const email = ((rec as any).email || "").toLowerCase().trim();
         return (
           (userEmail && email && email === userEmail) ||
-          (userName && fName && (fName.includes(userName) || userName.includes(fName)))
-        )
-      })
-      if (matched.length > 0) source = matched
+          (userName &&
+            fName &&
+            (fName.includes(userName) || userName.includes(fName)))
+        );
+      });
+      if (matched.length > 0) source = matched;
     }
 
     // Deduplicate so resubmissions or multiple database records for the same submission never duplicate
-    const uniqueMap = new Map<string, HistoryRecord>()
+    const uniqueMap = new Map<string, HistoryRecord>();
     for (const r of source) {
       // Group key: prefer exact reference, else id, else type+period+faculty
       const refKey =
         r.record?.reference ||
         r.id ||
-        `${r.type}-${r.period}-${r.record?.facultyNumber || ""}`
+        `${r.type}-${r.period}-${r.record?.facultyNumber || ""}`;
 
       if (!uniqueMap.has(refKey)) {
-        uniqueMap.set(refKey, r)
+        uniqueMap.set(refKey, r);
       } else {
-        const existing = uniqueMap.get(refKey)!
-        const timeExisting = new Date(existing.record?.reviewedAt || existing.submitted).getTime() || 0
-        const timeCurrent = new Date(r.record?.reviewedAt || r.submitted).getTime() || 0
+        const existing = uniqueMap.get(refKey)!;
+        const timeExisting =
+          new Date(
+            existing.record?.reviewedAt || existing.submitted,
+          ).getTime() || 0;
+        const timeCurrent =
+          new Date(r.record?.reviewedAt || r.submitted).getTime() || 0;
         // Prefer newer time or pending/approved over rejected
         if (
           timeCurrent > timeExisting ||
-          (r.status === "Pending" && (existing.status === "Rejected" || existing.status === "Disapproved"))
+          (r.status === "Pending" &&
+            (existing.status === "Rejected" ||
+              existing.status === "Disapproved"))
         ) {
-          uniqueMap.set(refKey, r)
+          uniqueMap.set(refKey, r);
         }
       }
     }
 
-    return Array.from(uniqueMap.values())
-  }, [allRecords, user])
+    return Array.from(uniqueMap.values());
+  }, [allRecords, user]);
 
   const latestSubmission: LatestSubmission | null = useMemo(() => {
-    if (records.length === 0) return null
+    if (records.length === 0) return null;
     const sorted = [...records].sort((a, b) => {
-      const timeA = new Date(a.record?.reviewedAt || a.submitted).getTime()
-      const timeB = new Date(b.record?.reviewedAt || b.submitted).getTime()
-      if (!isNaN(timeA) && !isNaN(timeB)) return timeB - timeA
-      return 0
-    })
-    const latest = sorted[0] || records[0]
+      const timeA = new Date(a.record?.reviewedAt || a.submitted).getTime();
+      const timeB = new Date(b.record?.reviewedAt || b.submitted).getTime();
+      if (!isNaN(timeA) && !isNaN(timeB)) return timeB - timeA;
+      return 0;
+    });
+    const latest = sorted[0] || records[0];
     return {
       type: latest.type,
       period: latest.period,
@@ -621,15 +724,15 @@ export default function ProfHistory() {
       remark: latest.record?.remark,
       reviewer: latest.record?.reviewer,
       rawRecord: latest,
-    }
-  }, [records])
-  const [tab, setTab] = useState("All")
-  const [searchQuery, setSearchQuery] = useState("")
+    };
+  }, [records]);
+  const [tab, setTab] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<{
-    row: HistoryRecord
-    idx: number
-  } | null>(null)
-  const tabs = ["All", "AR", "DTR"]
+    row: HistoryRecord;
+    idx: number;
+  } | null>(null);
+  const tabs = ["All", "AR", "DTR"];
   const initials = user?.name
     ? user.name
         .split(" ")
@@ -638,28 +741,34 @@ export default function ProfHistory() {
         .slice(0, 2)
         .join("")
         .toUpperCase()
-    : "ME"
+    : "ME";
 
   const rows = records.filter((r) => {
-    if (tab !== "All" && r.type !== tab) return false
+    if (tab !== "All" && r.type !== tab) return false;
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      const matchPeriod = r.period?.toLowerCase().includes(q)
+      const q = searchQuery.toLowerCase();
+      const matchPeriod = r.period?.toLowerCase().includes(q);
       const matchRef =
         r.id?.toLowerCase().includes(q) ||
-        r.record?.reference?.toLowerCase().includes(q)
-      const matchUnits = r.units?.toLowerCase().includes(q)
-      const matchStage = r.stage?.toLowerCase().includes(q)
-      const matchStatus = r.status?.toLowerCase().includes(q)
-      return Boolean(matchPeriod || matchRef || matchUnits || matchStage || matchStatus)
+        r.record?.reference?.toLowerCase().includes(q);
+      const matchUnits = r.units?.toLowerCase().includes(q);
+      const matchStage = r.stage?.toLowerCase().includes(q);
+      const matchStatus = r.status?.toLowerCase().includes(q);
+      return Boolean(
+        matchPeriod || matchRef || matchUnits || matchStage || matchStatus,
+      );
     }
-    return true
-  })
-  const approvedCount = records.filter((record) => record.status === "Approved").length
-  const pendingCount = records.filter((record) => record.status === "Pending").length
+    return true;
+  });
+  const approvedCount = records.filter(
+    (record) => record.status === "Approved",
+  ).length;
+  const pendingCount = records.filter(
+    (record) => record.status === "Pending",
+  ).length;
   const rejectedCount = records.filter(
     (record) => record.status === "Rejected" || record.status === "Disapproved",
-  ).length
+  ).length;
 
   return (
     <div className="pb-2">
@@ -696,7 +805,12 @@ export default function ProfHistory() {
         }
       />
 
-      {latestSubmission && <LatestSubmissionCard submission={latestSubmission} onRevise={handleRevise} />}
+      {latestSubmission && (
+        <LatestSubmissionCard
+          submission={latestSubmission}
+          onRevise={handleRevise}
+        />
+      )}
 
       <StatGrid className="mb-4">
         {[
@@ -734,7 +848,9 @@ export default function ProfHistory() {
         </div>
         {rows.length === 0 ? (
           <div className="py-14 text-center text-[#8fa394] text-[13px]">
-            {loading ? "Loading submissions..." : "No submission records found."}
+            {loading
+              ? "Loading submissions..."
+              : "No submission records found."}
           </div>
         ) : (
           rows.map((r, i) => (
@@ -776,18 +892,18 @@ export default function ProfHistory() {
                       r.stage === "Accounting"
                         ? "#eaf4ee"
                         : r.stage === "HR"
-                        ? "#fdf3e7"
-                        : r.stage === "Secretary"
-                        ? "#eef3fb"
-                        : "#f3f5f3",
+                          ? "#fdf3e7"
+                          : r.stage === "Secretary"
+                            ? "#eef3fb"
+                            : "#f3f5f3",
                     color:
                       r.stage === "Accounting"
                         ? "#2f7043"
                         : r.stage === "HR"
-                        ? "#b45309"
-                        : r.stage === "Secretary"
-                        ? "#1d4ed8"
-                        : "#5a6b5e",
+                          ? "#b45309"
+                          : r.stage === "Secretary"
+                            ? "#1d4ed8"
+                            : "#5a6b5e",
                   }}
                 >
                   <span
@@ -797,10 +913,10 @@ export default function ProfHistory() {
                         r.stage === "Accounting"
                           ? "#2f7043"
                           : r.stage === "HR"
-                          ? "#b45309"
-                          : r.stage === "Secretary"
-                          ? "#1d4ed8"
-                          : "#8fa394",
+                            ? "#b45309"
+                            : r.stage === "Secretary"
+                              ? "#1d4ed8"
+                              : "#8fa394",
                     }}
                   />
                   {r.stage || "Checker"}
@@ -817,14 +933,20 @@ export default function ProfHistory() {
                   <button
                     type="button"
                     onClick={(e) => {
-                      e.stopPropagation()
-                      handleRevise(r)
+                      e.stopPropagation();
+                      handleRevise(r);
                     }}
                     className="px-2 py-0.5 rounded-md text-[11px] font-bold text-white shadow-2xs hover:opacity-90 flex items-center gap-1 cursor-pointer"
                     style={{ background: "#c0392b" }}
                     title="Edit and resubmit changes"
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="w-3 h-3"
+                    >
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
@@ -850,20 +972,28 @@ export default function ProfHistory() {
         actions={
           <div className="flex items-center gap-2">
             <GhostButton onClick={() => setSelected(null)}>Close</GhostButton>
-            {selected && (selected.row.status === "Rejected" || selected.row.status === "Disapproved") && (
-              <button
-                type="button"
-                onClick={() => handleRevise(selected.row)}
-                className="px-4 py-2 rounded-xl text-[12.5px] font-bold text-white shadow-xs transition-transform active:scale-98 flex items-center gap-1.5 cursor-pointer"
-                style={{ background: "#c0392b" }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-                Edit &amp; Resubmit Changes
-              </button>
-            )}
+            {selected &&
+              (selected.row.status === "Rejected" ||
+                selected.row.status === "Disapproved") && (
+                <button
+                  type="button"
+                  onClick={() => handleRevise(selected.row)}
+                  className="px-4 py-2 rounded-xl text-[12.5px] font-bold text-white shadow-xs transition-transform active:scale-98 flex items-center gap-1.5 cursor-pointer"
+                  style={{ background: "#c0392b" }}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="w-4 h-4"
+                  >
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                  Edit &amp; Resubmit Changes
+                </button>
+              )}
           </div>
         }
       >
@@ -881,5 +1011,5 @@ export default function ProfHistory() {
         )}
       </Modal>
     </div>
-  )
+  );
 }

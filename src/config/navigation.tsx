@@ -11,7 +11,7 @@ export const icon = (path: JSX.Element) => (
     strokeWidth="1.6"
     strokeLinecap="round"
     strokeLinejoin="round"
-    className="w-[18px] h-[18px]"
+    className="w-4.5 h-4.5"
   >
     {path}
   </svg>
