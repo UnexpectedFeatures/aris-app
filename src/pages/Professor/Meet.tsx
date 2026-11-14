@@ -886,9 +886,9 @@ export default function ProfMeet() {
         currentCall.title &&
         !currentCall.title.startsWith("Instant Class") &&
         !currentCall.title.startsWith("Meeting (")
-          ? currentCall.title
-          : `${parsedCourse.courseCode} Online Class Lecture & Discussion`;
-      const autofillTask = `Online Lecture and Class Discussion via Google Meet (Room: ${realCode}, Duration: ${durationMinutes}m)`;
+          ? currentCall.title.trim().toUpperCase()
+          : `${parsedCourse.courseCode} ONLINE CLASS LECTURE & DISCUSSION`;
+      const autofillTask = "Lecture and Discussion, Activity";
 
       console.log(
         "\n================== [ARIS FRONTEND] 🏁 SAVING MEETING & QUEUING TEACHING LOAD ==================",
