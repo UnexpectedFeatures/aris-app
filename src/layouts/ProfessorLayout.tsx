@@ -340,7 +340,7 @@ export default function ProfRoot({
             ...settingsNav,
           ].map((item) => (
             <button
-              key={item.path}
+              key={`${item.path}-${item.label}`}
               onClick={() => navigate(item.path)}
               aria-current={
                 location.pathname === item.path ? "page" : undefined
