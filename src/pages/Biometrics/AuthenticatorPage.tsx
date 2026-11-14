@@ -495,7 +495,20 @@ export default function AuthenticatorPage() {
               The device does not require a token.
             </p>
           )}
-          <div className="flex flex-wrap gap-2">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!tokenInput.trim()) return;
+              try {
+                await api.saveToken(tokenInput);
+                setTokenInput("");
+                await a.refreshToken();
+              } catch (err) {
+                a.setError(toBridgeError(err));
+              }
+            }}
+            className="flex flex-wrap gap-2"
+          >
             <input
               type="password"
               autoComplete="off"
@@ -505,21 +518,14 @@ export default function AuthenticatorPage() {
               onChange={(e) => setTokenInput(e.target.value)}
             />
             <button
+              type="submit"
               className={btn}
               disabled={!tokenInput.trim()}
-              onClick={async () => {
-                try {
-                  await api.saveToken(tokenInput);
-                  setTokenInput("");
-                  await a.refreshToken();
-                } catch (e) {
-                  a.setError(toBridgeError(e));
-                }
-              }}
             >
               Save token
             </button>
             <button
+              type="button"
               className={btn}
               disabled={!a.tokenConfigured}
               onClick={async () => {
@@ -533,7 +539,7 @@ export default function AuthenticatorPage() {
             >
               Remove
             </button>
-          </div>
+          </form>
         </Section>
 
         {role === "administrator" && (
