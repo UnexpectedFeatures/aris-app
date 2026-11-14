@@ -1,16 +1,17 @@
-export const card = "rounded-lg border border-[#D6D6D6] bg-white p-4 space-y-3";
+export const card =
+  "rounded-3xl bg-white p-5 space-y-3 shadow-[0_1px_2px_rgba(16,32,20,0.05)]";
 export const input =
-  "rounded-md border border-[#D6D6D6] bg-white px-3 py-1.5 text-sm text-[#1E293B] outline-none focus:ring-2 focus:ring-[#047857] disabled:opacity-50";
+  "h-10 rounded-xl border border-[#E2E8E4] bg-[#FAFBFA] px-3.5 text-[13px] text-[#111C14] outline-none focus:border-[#2F7043] focus:ring-2 focus:ring-[#2F7043]/10 disabled:cursor-not-allowed disabled:opacity-50";
 export const btn =
-  "rounded-md border border-[#D6D6D6] bg-white px-3 py-1.5 text-sm font-medium text-[#1E293B] hover:bg-[#EDEDED] disabled:cursor-not-allowed disabled:opacity-50";
+  "h-9 rounded-xl border border-[#E2E8E4] bg-white px-3.5 text-[13px] font-medium text-[#3D4A41] transition-colors hover:bg-[#F7F9F8] disabled:cursor-not-allowed disabled:opacity-50";
 export const btnPrimary =
-  "rounded-md bg-[#047857] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#065F46] active:bg-[#064E3B] disabled:cursor-not-allowed disabled:opacity-50";
+  "h-9 rounded-xl bg-[#2F7043] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[#276039] active:bg-[#214F30] disabled:cursor-not-allowed disabled:opacity-50";
 export const btnDanger =
-  "rounded-md border border-red-500 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50";
+  "h-9 rounded-xl border border-[#E2E8E4] bg-white px-3.5 text-[13px] font-medium text-[#C0392B] transition-colors hover:bg-[#FBECEC] disabled:cursor-not-allowed disabled:opacity-50";
 export const alertErr =
-  "rounded-md border border-red-500 bg-red-50 px-3 py-2 text-sm text-red-700";
+  "rounded-2xl border border-[#F2CACA] bg-[#FBECEC] px-3.5 py-2.5 text-[13px] text-[#C0392B]";
 export const alertOk =
-  "rounded-md border border-[#047857] bg-[#047857]/10 px-3 py-2 text-sm text-[#064E3B]";
+  "rounded-2xl border border-[#D7EBDD] bg-[#EAF4EE] px-3.5 py-2.5 text-[13px] text-[#2F7043]";
 
 export default function Pager({
   page,

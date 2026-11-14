@@ -1278,9 +1278,10 @@ export default function ProfSubmit() {
               <input
                 type="text"
                 required
+                disabled
                 value={facultyName}
                 onChange={(e) => setFacultyName(e.target.value)}
-                className={inputCls + " uppercase"}
+                className={inputCls + " uppercase disabled:cursor-not-allowed disabled:opacity-70"}
                 style={inputStyle}
               />
             </div>
@@ -1289,9 +1290,10 @@ export default function ProfSubmit() {
               <input
                 type="text"
                 placeholder="e.g. P00001"
+                disabled
                 value={facultyNumber}
                 onChange={(e) => setFacultyNumber(e.target.value)}
-                className={inputCls}
+                className={inputCls + " disabled:cursor-not-allowed disabled:opacity-70"}
                 style={inputStyle}
               />
             </div>
@@ -1299,9 +1301,10 @@ export default function ProfSubmit() {
               <FieldLabel>College / Department</FieldLabel>
               <input
                 type="text"
+                disabled
                 value={college}
                 onChange={(e) => setCollege(e.target.value)}
-                className={inputCls + " uppercase"}
+                className={inputCls + " uppercase disabled:cursor-not-allowed disabled:opacity-70"}
                 style={inputStyle}
               />
             </div>
