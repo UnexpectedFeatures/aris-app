@@ -899,24 +899,29 @@ export default function ProfMeet() {
         "============================================================================================\n",
       );
 
-      // Auto-queue teaching load autofill for Submit page
-      queueMeetTeachingLoadAutofill({
-        id: `meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        meetingId: currentCall.id,
-        courseCode: parsedCourse.courseCode,
-        courseTitle: parsedCourse.courseTitle,
-        section: parsedCourse.section,
-        units: parsedCourse.units,
-        meetingDate: meetingDateStr,
-        meetingDay,
-        meetingTime,
-        meetingCode: realCode,
-        durationMinutes,
-        topics: autofillTopic,
-        tasks: autofillTask,
-        campus: "CONGRESS",
-        createdAt: new Date().toISOString(),
-      });
+      // Auto-queue teaching load autofill for Submit page (scoped to authenticated professor)
+      queueMeetTeachingLoadAutofill(
+        {
+          id: `meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          meetingId: currentCall.id,
+          userEmail: user?.email || oauthEmail,
+          userId: user?.id,
+          courseCode: parsedCourse.courseCode,
+          courseTitle: parsedCourse.courseTitle,
+          section: parsedCourse.section,
+          units: parsedCourse.units,
+          meetingDate: meetingDateStr,
+          meetingDay,
+          meetingTime,
+          meetingCode: realCode,
+          durationMinutes,
+          topics: autofillTopic,
+          tasks: autofillTask,
+          campus: "CONGRESS",
+          createdAt: new Date().toISOString(),
+        },
+        user?.email || oauthEmail,
+      );
 
       // Save to backend first (auth_out is attached afterwards) so the record
       // exists even if verification is skipped or the app closes mid-scan.

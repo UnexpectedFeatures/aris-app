@@ -1,6 +1,8 @@
 export interface MeetTeachingLoadAutofill {
   id: string;
   meetingId?: string;
+  userEmail?: string;
+  userId?: string;
   courseCode: string;
   courseTitle: string;
   section: string;
@@ -22,8 +24,10 @@ export interface MinimalCourseInfo {
   units: number | string;
 }
 
-const PENDING_STORAGE_KEY = "aris:meet_pending_teaching_load";
-const APPLIED_STORAGE_KEY = "aris:meet_applied_teaching_load";
+const pendingKey = (userKey?: string) =>
+  userKey ? `aris:meet_pending_teaching_load:${userKey.toLowerCase().trim()}` : "aris:meet_pending_teaching_load";
+const appliedKey = (userKey?: string) =>
+  userKey ? `aris:meet_applied_teaching_load:${userKey.toLowerCase().trim()}` : "aris:meet_applied_teaching_load";
 
 export function formatTime12(date: Date): string {
   if (isNaN(date.getTime())) return "08:00 AM";
@@ -109,16 +113,30 @@ export function parseCourseString(
   };
 }
 
-export function queueMeetTeachingLoadAutofill(item: MeetTeachingLoadAutofill): void {
+export function queueMeetTeachingLoadAutofill(
+  item: MeetTeachingLoadAutofill,
+  userKey?: string,
+): void {
   try {
-    const raw = localStorage.getItem(PENDING_STORAGE_KEY);
+    const key = pendingKey(userKey || item.userEmail || item.userId);
+    const raw = localStorage.getItem(key);
     const list: MeetTeachingLoadAutofill[] = raw ? JSON.parse(raw) : [];
     // Deduplicate by meetingCode & meetingDate
     const filtered = list.filter(
       (m) => !(m.meetingCode === item.meetingCode && m.meetingDate === item.meetingDate)
     );
     filtered.push(item);
-    localStorage.setItem(PENDING_STORAGE_KEY, JSON.stringify(filtered));
+    localStorage.setItem(key, JSON.stringify(filtered));
+
+    // Also maintain legacy global key for compatibility
+    if (key !== "aris:meet_pending_teaching_load") {
+      try {
+        localStorage.setItem(
+          "aris:meet_pending_teaching_load",
+          JSON.stringify([item]),
+        );
+      } catch {}
+    }
 
     // Dispatch window custom event so an active Submit page receives it immediately
     window.dispatchEvent(
@@ -129,33 +147,52 @@ export function queueMeetTeachingLoadAutofill(item: MeetTeachingLoadAutofill): v
   }
 }
 
-export function getPendingMeetTeachingLoadAutofills(): MeetTeachingLoadAutofill[] {
+export function getPendingMeetTeachingLoadAutofills(userKey?: string): MeetTeachingLoadAutofill[] {
   try {
-    const raw = localStorage.getItem(PENDING_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as MeetTeachingLoadAutofill[]) : [];
+    if (userKey) {
+      const scopedRaw = localStorage.getItem(pendingKey(userKey));
+      if (scopedRaw) return JSON.parse(scopedRaw) as MeetTeachingLoadAutofill[];
+    }
+    const raw = localStorage.getItem("aris:meet_pending_teaching_load");
+    if (!raw) return [];
+    const list = JSON.parse(raw) as MeetTeachingLoadAutofill[];
+    if (!userKey) return list;
+    const target = userKey.toLowerCase().trim();
+    return list.filter(
+      (m) =>
+        (m.userEmail && m.userEmail.toLowerCase().trim() === target) ||
+        (m.userId && m.userId.toLowerCase().trim() === target),
+    );
   } catch {
     return [];
   }
 }
 
-export function clearPendingMeetTeachingLoadAutofills(): void {
+export function clearPendingMeetTeachingLoadAutofills(userKey?: string): void {
   try {
-    localStorage.removeItem(PENDING_STORAGE_KEY);
+    if (userKey) {
+      localStorage.removeItem(pendingKey(userKey));
+    }
+    localStorage.removeItem("aris:meet_pending_teaching_load");
   } catch {}
 }
 
-export function recordAppliedMeetAutofills(items: MeetTeachingLoadAutofill[]): void {
+export function recordAppliedMeetAutofills(
+  items: MeetTeachingLoadAutofill[],
+  userKey?: string,
+): void {
   try {
-    const raw = localStorage.getItem(APPLIED_STORAGE_KEY);
+    const key = appliedKey(userKey);
+    const raw = localStorage.getItem(key);
     const list: MeetTeachingLoadAutofill[] = raw ? JSON.parse(raw) : [];
     const combined = [...list, ...items];
-    localStorage.setItem(APPLIED_STORAGE_KEY, JSON.stringify(combined.slice(-30)));
+    localStorage.setItem(key, JSON.stringify(combined.slice(-30)));
   } catch {}
 }
 
-export function getAppliedMeetAutofills(): MeetTeachingLoadAutofill[] {
+export function getAppliedMeetAutofills(userKey?: string): MeetTeachingLoadAutofill[] {
   try {
-    const raw = localStorage.getItem(APPLIED_STORAGE_KEY);
+    const raw = localStorage.getItem(appliedKey(userKey));
     return raw ? (JSON.parse(raw) as MeetTeachingLoadAutofill[]) : [];
   } catch {
     return [];

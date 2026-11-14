@@ -538,13 +538,14 @@ export default function ProfSubmit() {
       details: `${last.courseCode} (${last.courseTitle}) — Held on ${formatHeldDate(last.meetingDate)} at ${last.meetingTime}.`,
     });
 
-    clearPendingMeetTeachingLoadAutofills();
-    recordAppliedMeetAutofills(items);
+    clearPendingMeetTeachingLoadAutofills(user?.email || user?.id);
+    recordAppliedMeetAutofills(items, user?.email || user?.id);
   };
 
-  // Real-time listener & initial check for Google Meet autofills
+  // Real-time listener & initial check for Google Meet autofills (scoped to authenticated professor)
   useEffect(() => {
-    const pending = getPendingMeetTeachingLoadAutofills();
+    const userKey = user?.email || user?.id;
+    const pending = getPendingMeetTeachingLoadAutofills(userKey);
     if (pending && pending.length > 0) {
       applyMeetAutofill(pending);
     }
@@ -552,7 +553,16 @@ export default function ProfSubmit() {
     const handler = (e: Event) => {
       const customEvt = e as CustomEvent<MeetTeachingLoadAutofill>;
       if (customEvt.detail) {
-        applyMeetAutofill([customEvt.detail]);
+        // Only accept if it belongs to this professor or is unscoped
+        const evtDetail = customEvt.detail;
+        if (
+          !evtDetail.userEmail ||
+          !user?.email ||
+          evtDetail.userEmail.toLowerCase().trim() ===
+            user.email.toLowerCase().trim()
+        ) {
+          applyMeetAutofill([evtDetail]);
+        }
       }
     };
 
@@ -560,25 +570,39 @@ export default function ProfSubmit() {
     return () => {
       window.removeEventListener("aris:meet-autofill-added", handler);
     };
-  }, []);
+  }, [user?.email, user?.id]);
 
   // Manual sync button to pull recent completed Google Meet session into teaching load
   const handleSyncFromGoogleMeet = async () => {
     setIsSyncingMeet(true);
     try {
-      // 1. Check pending in localStorage
-      const pending = getPendingMeetTeachingLoadAutofills();
+      const userKey = user?.email || user?.id;
+      // 1. Check pending in localStorage scoped to this professor
+      const pending = getPendingMeetTeachingLoadAutofills(userKey);
       if (pending.length > 0) {
         applyMeetAutofill(pending);
         setIsSyncingMeet(false);
         return;
       }
 
-      // 2. Fetch completed meetings from DB
-      const dbMeetings = await fetchMeetingsFromDb();
-      const completed = (dbMeetings || []).filter(
-        (m) => m.status === "completed" || m.status === "summarized",
-      );
+      // 2. Fetch completed meetings from DB scoped to this professor
+      const dbMeetings = await fetchMeetingsFromDb(user?.email);
+      const userEmailLower = (user?.email || "").toLowerCase().trim();
+      const completed = (dbMeetings || []).filter((m) => {
+        const isFinished =
+          m.status === "completed" || m.status === "summarized";
+        if (!isFinished) return false;
+        // Verify owner if professor_id or email is present on the record
+        if (m.professor_id && user?.id && m.professor_id === user.id)
+          return true;
+        if (
+          (m as any).professor_email &&
+          (m as any).professor_email.toLowerCase().trim() === userEmailLower
+        )
+          return true;
+        // If no owner metadata was attached on older rows, allow matching
+        return !m.professor_id;
+      });
 
       if (completed.length === 0) {
         setAutofillBanner({

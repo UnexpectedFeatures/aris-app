@@ -94,10 +94,15 @@ export async function updateMeetingAuthOut(
   return record;
 }
 
-export async function fetchMeetingsFromDb(): Promise<SavedMeetingRecord[]> {
+export async function fetchMeetingsFromDb(
+  email?: string,
+): Promise<SavedMeetingRecord[]> {
   try {
+    const url = email
+      ? `/meetings?email=${encodeURIComponent(email)}`
+      : "/meetings";
     const response =
-      await apiClient.get<ApiResponse<SavedMeetingRecord[]>>("/meetings");
+      await apiClient.get<ApiResponse<SavedMeetingRecord[]>>(url);
     if (
       response.data &&
       "data" in response.data &&
