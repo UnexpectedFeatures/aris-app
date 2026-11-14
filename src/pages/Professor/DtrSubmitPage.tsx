@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { PageTitle } from "@/components/ui";
+import { PageTitle, dtrTable } from "@/components/ui";
 import Pager from "@/components/theme";
 import {
   applyTransactionFilters,
@@ -8,6 +8,8 @@ import {
   loadTransactions,
   useTransactionsStore,
 } from "@/stores/biometricsTransactionsStore";
+import { useAuth } from "@/app/authContext";
+import { saveResource } from "@/services/dataSource";
 
 type DtrPeriod = "first-half" | "second-half";
 
@@ -55,12 +57,15 @@ const fieldClass =
 
 export default function DtrSubmitPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const s = useTransactionsStore();
   const [month, setMonth] = useState(currentMonth);
   const [period, setPeriod] = useState<DtrPeriod>("first-half");
   const [loaded, setLoaded] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const loading = s.loading;
   const error = localError ?? s.error;
@@ -90,8 +95,162 @@ export default function DtrSubmitPage() {
     void fetchRange();
   }, [month, period]);
 
-  const handleSubmit = () => {
-    setSubmitNotice("DTR submission is not available yet.");
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setSubmitNotice(null);
+
+    try {
+      const { startDate, endDate } = getDtrDateRange(month, period);
+
+      // Human-readable period label e.g. "November 2026 (1–15)"
+      const [yr, mo] = month.split("-");
+      const monthName = new Date(`${yr}-${mo}-01`).toLocaleString("en-PH", {
+        month: "long",
+        timeZone: "UTC",
+      });
+      const halfLabel = period === "first-half" ? "1–15" : "16–end";
+      const periodLabel = `${monthName} ${yr} (${halfLabel})`;
+
+      const reference = `DTR-${Date.now()}`;
+      const now = new Date().toLocaleString();
+      const facultyName = user?.name?.toUpperCase() ?? "Faculty";
+      const facultyNumber = user?.employee_id ?? "—";
+      const college = "COLLEGE OF LIBERAL ARTS AND SCIENCES";
+
+      // Build DTR rows for the record payload (matches backend audit format)
+      const dtrRows = s.records.map((rec) => {
+        const { date, time } = formatPunch(rec.punch_time);
+        return [date, time, rec.punch_state_display ?? "—", rec.area_alias ?? "—"];
+      });
+
+      const tables = [
+        dtrTable(
+          `DTR Log Summary — ${startDate} – ${endDate}`,
+          `${s.records.length} punch record${s.records.length === 1 ? "" : "s"} logged`,
+          dtrRows,
+        ),
+      ];
+
+      const record = {
+        id: reference,
+        reference,
+        is_revision: false,
+        type: "DTR" as const,
+        period: periodLabel,
+        units: `${s.records.length} punch record${s.records.length === 1 ? "" : "s"}`,
+        submitted: now,
+        status: "Pending" as const,
+        stage: "Checker",
+        currentStage: "Checker",
+        stage_key: "DTR-AP-STG-1",
+        approval_stage: "DTR-AP-STG-1",
+        stage_order: 1,
+        email: user?.email,
+        facultyEmail: user?.email,
+        facultyName,
+        facultyNumber,
+        event: `DTR submitted · ${periodLabel}`,
+        // For the dedicated dtr-submissions endpoint:
+        periodStart: startDate,
+        periodEnd: endDate,
+        record: {
+          period: periodLabel,
+          reference,
+          email: user?.email,
+          facultyEmail: user?.email,
+          facultyName,
+          facultyNumber,
+          college,
+          tables,
+          notes: undefined as string | undefined,
+          attachment: undefined as string | undefined,
+          reviewer: "Faculty Checker",
+          reviewedAt: now,
+          remark: "Received and queued for review.",
+        },
+      };
+
+      // Sync local demo audit store so History immediately shows the new submission
+      try {
+        const auditKeys = [
+          "aris:demo:/audit",
+          `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
+        ];
+        const initials = facultyName
+          .split(" ")
+          .map((w: string) => w[0] ?? "")
+          .join("")
+          .slice(0, 2)
+          .toUpperCase();
+        const newAuditEntry = {
+          id: reference,
+          actor: facultyName,
+          init: initials,
+          type: "DTR",
+          action: `DTR submitted · ${periodLabel}`,
+          target: `${periodLabel} · ${s.records.length} punch records`,
+          time: now,
+          result: "Pending",
+          stage: "Checker",
+          stage_role: "Checker",
+          stage_key: "DTR-AP-STG-1",
+          approval_stage: "DTR-AP-STG-1",
+          stage_order: 1,
+          record: record.record,
+        };
+        for (const k of auditKeys) {
+          try {
+            const stored = localStorage.getItem(k);
+            if (stored) {
+              const parsed = JSON.parse(stored) as unknown;
+              const isArr = Array.isArray(parsed);
+              const logs: unknown[] = isArr
+                ? (parsed as unknown[])
+                : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
+              const next = [newAuditEntry, ...logs];
+              localStorage.setItem(
+                k,
+                JSON.stringify(
+                  isArr ? next : { ...(parsed as object), logs: next },
+                ),
+              );
+            } else {
+              localStorage.setItem(k, JSON.stringify([newAuditEntry]));
+            }
+          } catch {
+            /* ignore per-key errors */
+          }
+        }
+      } catch (syncErr) {
+        console.warn("Could not sync local audit store:", syncErr);
+      }
+
+      // 1. Try the dedicated DTR endpoint first
+      try {
+        await saveResource("/professor/dtr-submissions", record);
+        navigate("/prof/history");
+        return;
+      } catch {
+        // fall through to the generic submissions endpoint
+      }
+
+      // 2. Fallback: generic accomplishment-reports / submissions endpoint
+      try {
+        await saveResource("/professor/accomplishment-reports", record);
+      } catch {
+        await saveResource("/professor/submissions", record);
+      }
+
+      navigate("/prof/history");
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "Unable to submit DTR. Please try again.",
+      );
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -171,6 +330,14 @@ export default function DtrSubmitPage() {
             className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800"
           >
             {submitNotice}
+          </div>
+        )}
+        {submitError && (
+          <div
+            role="alert"
+            className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700"
+          >
+            {submitError}
           </div>
         )}
 
@@ -275,14 +442,14 @@ export default function DtrSubmitPage() {
           </button>
           <button
             type="button"
-            onClick={handleSubmit}
-            disabled={!loaded || loading || !!error || records.length === 0}
+            onClick={() => void handleSubmit()}
+            disabled={!loaded || loading || isSubmitting || !!error || records.length === 0}
             className="rounded-xl px-6 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
             }}
           >
-            Submit DTR
+            {isSubmitting ? "Submitting…" : "Submit DTR"}
           </button>
         </div>
       </footer>
