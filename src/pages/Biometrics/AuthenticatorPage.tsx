@@ -12,6 +12,7 @@ import {
   input,
 } from "../../components/theme";
 import { useAuth } from "@/app/authContext";
+import { Badge } from "@/components/ui";
 
 const STEPS = [
   "First scan",
@@ -70,9 +71,9 @@ function Section({
     <section className={card}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-base font-semibold">{title}</h2>
+          <h2 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>{title}</h2>
           {description && (
-            <p className="text-xs text-[#64748B]">{description}</p>
+            <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>{description}</p>
           )}
         </div>
         {action}
@@ -84,9 +85,9 @@ function Section({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-[#D6D6D6] bg-[#F5F5F5] p-3">
-      <p className="text-xs text-[#64748B]">{label}</p>
-      <p className="mt-0.5 truncate text-xl font-semibold">{value}</p>
+    <div className="rounded-2xl bg-[#F4F6F5] p-3">
+      <p className="text-[11.5px]" style={{ color: "#8fa394" }}>{label}</p>
+      <p className="mt-0.5 truncate text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>{value}</p>
     </div>
   );
 }
@@ -94,7 +95,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <dt className="text-[#64748B]">{label}</dt>
+      <dt style={{ color: "#8fa394" }}>{label}</dt>
       <dd className="truncate">{children}</dd>
     </>
   );
@@ -128,7 +129,7 @@ function EnrollSteps({
               >
                 {failed ? "!" : done ? "✓" : i + 1}
               </span>
-              <span className="whitespace-nowrap text-[11px] text-[#64748B]">
+              <span className="whitespace-nowrap text-[11px]" style={{ color: "#8fa394" }}>
                 {label}
               </span>
             </div>
@@ -203,10 +204,6 @@ export default function AuthenticatorPage() {
             : `Enrollment blocked: ${blockedText(info.enrollmentBlockedReason)}`;
   const ready = canEnroll && enrollmentStatus === "Ready for enrollment";
 
-  const pill = status.connected
-    ? "border-[#047857] bg-[#047857]/10 text-[#064E3B]"
-    : "border-[#D6D6D6] bg-white text-[#64748B]";
-
   const showSteps = running || enroll.phase === "done";
   const stepCurrent =
     enroll.phase === "done"
@@ -226,26 +223,21 @@ export default function AuthenticatorPage() {
   }, [status.connected, status.portName]);
 
   return (
-    <div className="min-h-full bg-[#F5F5F5] text-[#1E293B]">
-      <div className="mx-auto grid max-w-4xl gap-5 p-6">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold">Authenticator</h1>
-            <p className="text-sm text-[#64748B]">
+    <div className="pb-8">
+      <div className="grid gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>
+              Authenticator
+            </h1>
+            <p className="mt-0.5 text-[13.5px]" style={{ color: "#8fa394" }}>
               Connect your ARIS authenticator and enroll your fingerprint.
             </p>
           </div>
-          <span
-            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${pill}`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                status.connected ? "bg-[#047857]" : "bg-[#D6D6D6]"
-              }`}
-            />
+          <Badge tone={status.connected ? "green" : "gray"} dot>
             {connLabel}
-          </span>
-        </header>
+          </Badge>
+        </div>
 
         {a.error && (
           <div className={alertErr} role="alert">
@@ -256,7 +248,7 @@ export default function AuthenticatorPage() {
           </div>
         )}
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Section
             title="USB connection"
             description="Close Arduino Serial Monitor first. Opening the port may reboot the ESP32 (~3 s)."
@@ -495,7 +487,20 @@ export default function AuthenticatorPage() {
               The device does not require a token.
             </p>
           )}
-          <div className="flex flex-wrap gap-2">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!tokenInput.trim()) return;
+              try {
+                await api.saveToken(tokenInput);
+                setTokenInput("");
+                await a.refreshToken();
+              } catch (err) {
+                a.setError(toBridgeError(err));
+              }
+            }}
+            className="flex flex-wrap gap-2"
+          >
             <input
               type="password"
               autoComplete="off"
@@ -505,21 +510,14 @@ export default function AuthenticatorPage() {
               onChange={(e) => setTokenInput(e.target.value)}
             />
             <button
+              type="submit"
               className={btn}
               disabled={!tokenInput.trim()}
-              onClick={async () => {
-                try {
-                  await api.saveToken(tokenInput);
-                  setTokenInput("");
-                  await a.refreshToken();
-                } catch (e) {
-                  a.setError(toBridgeError(e));
-                }
-              }}
             >
               Save token
             </button>
             <button
+              type="button"
               className={btn}
               disabled={!a.tokenConfigured}
               onClick={async () => {
@@ -533,7 +531,7 @@ export default function AuthenticatorPage() {
             >
               Remove
             </button>
-          </div>
+          </form>
         </Section>
 
         {role === "administrator" && (

@@ -233,7 +233,7 @@ export function parseTablesToCourseBlocks(
       title: title || fullTitle,
       units: rows[0]?.units ?? 3,
       datesHeld:
-        tbl.datesHeld || tbl.meta || "2026-08-21,2026-08-23,2026-08-30",
+        tbl.datesHeld || tbl.meta || "",
       topics: tbl.topics || defaultTopics || "",
       tasks: tbl.tasks || defaultTasks || "",
       rows:
@@ -310,28 +310,7 @@ export default function ProfSubmit() {
       );
       if (parsed.length > 0) return parsed;
     }
-    return [
-      {
-        id: "course-1",
-        code: "CC 116",
-        title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
-        units: 5,
-        datesHeld: "2026-08-21,2026-08-23,2026-08-30",
-        topics: "DESIGNING LOG IN MODAL",
-        tasks: "",
-        rows: [
-          {
-            id: "row-1",
-            code: "CC 116",
-            section: "BSCS 3-B",
-            units: 5,
-            days: "MON | THU",
-            time: "6:30 – 9:00 PM | 6:30 – 9:00 PM",
-            campus: "CONGRESS",
-          },
-        ],
-      },
-    ];
+    return [];
   }, [reviseSubmission]);
 
   const [courses, setCourses] = useState<CourseBlock[]>(initialCourses);
@@ -425,6 +404,9 @@ export default function ProfSubmit() {
       const updated = [...prevCourses];
 
       for (const item of items) {
+        const itemTopicUpper = (item.topics || `${item.courseCode} ONLINE CLASS LECTURE & DISCUSSION`).trim().toUpperCase();
+        const itemTaskFormatted = item.tasks && !item.tasks.includes("Room:") ? item.tasks : "Lecture and Discussion, Activity";
+
         const existingIdx = updated.findIndex(
           (c) =>
             c.code.trim().toUpperCase() ===
@@ -433,48 +415,73 @@ export default function ProfSubmit() {
 
         if (existingIdx >= 0) {
           const ex = updated[existingIdx];
-          // 1. Add held date
-          const dates = getHeldDates(ex.datesHeld);
+          // 1. Add held date (ignore dummy initial dates if they were default)
+          const isDummyDates = ex.datesHeld === "2026-08-21,2026-08-23,2026-08-30";
+          const dates = isDummyDates ? [] : getHeldDates(ex.datesHeld);
           const newDates = dates.includes(item.meetingDate)
             ? dates
             : [...dates, item.meetingDate].sort();
 
-          // 2. Topics Discussed
+          // 2. Topics Discussed (Must be uppercase to follow Photo Format)
           let nextTopics = ex.topics;
-          if (!nextTopics || nextTopics.trim() === "") {
-            nextTopics = item.topics;
-          } else if (
-            !nextTopics.toLowerCase().includes(item.topics.toLowerCase())
+          if (
+            !nextTopics ||
+            nextTopics.trim() === "" ||
+            nextTopics === "DESIGNING LOG IN MODAL"
           ) {
-            nextTopics = `${nextTopics} · ${item.topics}`;
+            nextTopics = itemTopicUpper;
+          } else if (
+            !nextTopics.toUpperCase().includes(itemTopicUpper)
+          ) {
+            nextTopics = `${nextTopics} · ${itemTopicUpper}`;
           }
 
-          // 3. Task/Activity Description
+          // 3. Task/Activity Description (Follows standard "Lecture and Discussion, Activity" format)
           let nextTasks = ex.tasks;
-          if (!nextTasks || nextTasks.trim() === "") {
-            nextTasks = item.tasks;
-          } else if (!nextTasks.toLowerCase().includes("google meet")) {
-            nextTasks = `${nextTasks} · ${item.tasks}`;
+          if (
+            !nextTasks ||
+            nextTasks.trim() === "" ||
+            nextTasks.includes("Google Meet (Room:") ||
+            nextTasks.includes("Duration:")
+          ) {
+            nextTasks = itemTaskFormatted;
+          } else if (!nextTasks.includes(itemTaskFormatted)) {
+            nextTasks = `${nextTasks} · ${itemTaskFormatted}`;
           }
 
           // 4. Class Section Row
           const rows = [...ex.rows];
-          const rowIdx = rows.findIndex(
-            (r) =>
-              r.section.trim().toUpperCase() ===
-              item.section.trim().toUpperCase(),
-          );
+          const isDummyRow =
+            rows.length === 1 &&
+            rows[0].id === "row-1" &&
+            rows[0].section === "BSCS 3-B" &&
+            item.section !== "BSCS 3-B";
+
+          const rowIdx = isDummyRow
+            ? 0
+            : rows.findIndex(
+                (r) =>
+                  r.section.trim().toUpperCase() ===
+                  item.section.trim().toUpperCase(),
+              );
+
           if (rowIdx >= 0) {
-            if (
-              !rows[rowIdx].time ||
-              rows[rowIdx].time.includes("6:30 – 9:00")
-            ) {
-              rows[rowIdx] = {
-                ...rows[rowIdx],
-                days: rows[rowIdx].days || item.meetingDay,
-                time: item.meetingTime,
-              };
-            }
+            const targetDays = rows[rowIdx].days || item.meetingDay;
+            const dayParts = targetDays.split(" | ");
+            const formattedTime =
+              dayParts.length > 1
+                ? Array(dayParts.length).fill(item.meetingTime).join(" | ")
+                : item.meetingTime;
+
+            rows[rowIdx] = {
+              ...rows[rowIdx],
+              code: item.courseCode,
+              section: item.section,
+              units: item.units || rows[rowIdx].units,
+              days: targetDays,
+              time: formattedTime,
+              campus: rows[rowIdx].campus || item.campus || "CONGRESS",
+            };
           } else {
             rows.push({
               id: `row_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -503,8 +510,8 @@ export default function ProfSubmit() {
             title: item.courseTitle,
             units: item.units,
             datesHeld: item.meetingDate,
-            topics: item.topics,
-            tasks: item.tasks,
+            topics: itemTopicUpper,
+            tasks: itemTaskFormatted,
             rows: [
               {
                 id: `row_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -607,9 +614,11 @@ export default function ProfSubmit() {
           : `${formatTime12(sDate)} – ${formatTime12(eDate)}`;
       const meetDay = getDayAbbrev(sDate);
       const meetTopic =
-        latest.name && !latest.name.startsWith("Instant Class")
-          ? latest.name
-          : `${parsed.courseCode} Online Class Lecture`;
+        latest.name &&
+        !latest.name.startsWith("Instant Class") &&
+        !latest.name.startsWith("Meeting (")
+          ? latest.name.trim().toUpperCase()
+          : `${parsed.courseCode} ONLINE CLASS LECTURE & DISCUSSION`;
 
       const item: MeetTeachingLoadAutofill = {
         id: latest.id,
@@ -623,7 +632,7 @@ export default function ProfSubmit() {
         meetingCode: latest.meeting_code,
         durationMinutes: latest.duration_minutes || 60,
         topics: meetTopic,
-        tasks: `Online Lecture & Discussion via Google Meet (Room: ${latest.meeting_code}, Duration: ${latest.duration_minutes || 60}m)`,
+        tasks: "Lecture and Discussion, Activity",
         campus: "CONGRESS",
         createdAt: new Date().toISOString(),
       };
@@ -701,46 +710,6 @@ export default function ProfSubmit() {
       if (!isCancelled) {
         setAvailableCourses(fetchedCourses);
         setLoadingCourses(false);
-
-        // Pre-fill initial course block from first available DB course if not already customized
-        setCourses((prev) => {
-          if (
-            prev.length > 0 &&
-            prev[0].title &&
-            prev[0].title !== "ADVANCED WEB SYSTEMS AND TECHNOLOGIES"
-          ) {
-            return prev;
-          }
-          const matched =
-            fetchedCourses.find((c) =>
-              c.code.toLowerCase().includes("cc 116"),
-            ) || fetchedCourses[0];
-          if (!matched) return prev;
-
-          return [
-            {
-              id: "course-1",
-              courseId: matched.id,
-              code: matched.code,
-              title: matched.title,
-              units: matched.units,
-              datesHeld: "2026-08-21,2026-08-23,2026-08-30",
-              topics: "",
-              tasks: "",
-              rows: [
-                {
-                  id: "row-1",
-                  code: matched.code,
-                  section: "BSCS 3-B",
-                  units: matched.units,
-                  days: "MON | THU",
-                  time: "6:30 – 9:00 PM | 6:30 – 9:00 PM",
-                  campus: "CONGRESS",
-                },
-              ],
-            },
-          ];
-        });
       }
     }
 
@@ -817,7 +786,6 @@ export default function ProfSubmit() {
   };
 
   const handleDeleteCourse = (courseId: string) => {
-    if (courses.length <= 1) return;
     setCourses((prev) => prev.filter((c) => c.id !== courseId));
   };
 
@@ -1279,9 +1247,10 @@ export default function ProfSubmit() {
               <input
                 type="text"
                 required
+                disabled
                 value={facultyName}
                 onChange={(e) => setFacultyName(e.target.value)}
-                className={inputCls + " uppercase"}
+                className={inputCls + " uppercase disabled:cursor-not-allowed disabled:opacity-70"}
                 style={inputStyle}
               />
             </div>
@@ -1290,9 +1259,10 @@ export default function ProfSubmit() {
               <input
                 type="text"
                 placeholder="e.g. P00001"
+                disabled
                 value={facultyNumber}
                 onChange={(e) => setFacultyNumber(e.target.value)}
-                className={inputCls}
+                className={inputCls + " disabled:cursor-not-allowed disabled:opacity-70"}
                 style={inputStyle}
               />
             </div>
@@ -1300,9 +1270,10 @@ export default function ProfSubmit() {
               <FieldLabel>College / Department</FieldLabel>
               <input
                 type="text"
+                disabled
                 value={college}
                 onChange={(e) => setCollege(e.target.value)}
-                className={inputCls + " uppercase"}
+                className={inputCls + " uppercase disabled:cursor-not-allowed disabled:opacity-70"}
                 style={inputStyle}
               />
             </div>
@@ -1429,7 +1400,41 @@ export default function ProfSubmit() {
             </div>
           )}
 
-          {courses.map((course, idx) => (
+          {courses.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#a3d9bc] bg-[#fafbfa] p-8 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-[#eaf4ee] flex items-center justify-center text-[#009668]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+              </div>
+              <h4 className="text-[14px] font-bold text-[#111c14]">No Teaching Load Courses Added</h4>
+              <p className="text-[12.5px] text-[#718576] mt-1 max-w-md mx-auto">
+                Add an assigned course subject block below or auto-fill completed sessions from Google Meet.
+              </p>
+              <div className="mt-4 flex items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleSyncFromGoogleMeet}
+                  disabled={isSyncingMeet}
+                  className="px-3.5 py-2 rounded-xl text-[12px] font-bold border border-[#009668] bg-[#f0faf5] text-[#009668] hover:bg-[#e2f5ec] transition-all flex items-center gap-1.5"
+                >
+                  Auto-fill from Meet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddCourseModalOpen(true)}
+                  className="px-4 py-2 rounded-xl text-[12px] font-bold text-white transition-all shadow-sm"
+                  style={{
+                    background: "linear-gradient(135deg, #009668 0%, #00b87a 100%)",
+                  }}
+                >
+                  Add Course ({unaddedCourses.length} available)
+                </button>
+              </div>
+            </div>
+          ) : (
+            courses.map((course, idx) => (
             <div
               key={course.id}
               className="bg-white rounded-2xl border p-6 transition-all"
@@ -1487,24 +1492,22 @@ export default function ProfSubmit() {
                     Add Class Row
                   </button>
 
-                  {courses.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteCourse(course.id)}
-                      className="p-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-colors"
-                      title="Remove Course"
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCourse(course.id)}
+                    className="p-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-colors"
+                    title="Remove Course"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="w-4 h-4"
                     >
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="w-4 h-4"
-                      >
-                        <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  )}
+                      <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
                 </div>
               </div>
 
@@ -1811,7 +1814,7 @@ export default function ProfSubmit() {
                 </table>
               </div>
             </div>
-          ))}
+          )))}
 
           {/* Add Course Button */}
           <button

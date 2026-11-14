@@ -1,6 +1,21 @@
 import type { ReactNode } from "react";
 import { Avatar, Badge, initialsColor } from "@/components/ui";
 
+function formatHeldDates(val?: string) {
+  if (!val) return "";
+  return val
+    .split(",")
+    .map((s) => {
+      const trimmed = s.trim();
+      const parts = trimmed.split("-");
+      if (parts.length === 3 && parts[0].length === 4) {
+        return `${parts[1]}/${parts[2]}/${parts[0]}`;
+      }
+      return trimmed;
+    })
+    .join(", ");
+}
+
 /* ─── Shared submission detail ─────────────────────────────────────────────── */
 // The AR / DTR "record + status" panel used by the Audit Logs modal and the
 // professor Submission History modal. Mirrors the Submit Record page
@@ -181,7 +196,7 @@ function DetailTable({ num, table }: { num: string; table: RecordTable }) {
                     className="px-4 py-2.5 text-[12px] text-[#111c14]"
                   >
                     <span className="font-bold">Classes held: </span>
-                    <span className="font-medium">{table.datesHeld || table.meta}</span>
+                    <span className="font-medium">{formatHeldDates(table.datesHeld || table.meta)}</span>
                   </td>
                 </tr>
               )}
