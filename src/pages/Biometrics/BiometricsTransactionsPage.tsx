@@ -30,7 +30,10 @@ export default function BiometricsTransactionsPage() {
       <div className="grid gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>
+            <h1
+              className="text-[22px] font-bold tracking-tight"
+              style={{ color: "#111c14" }}
+            >
               Biometric Transactions
             </h1>
             <p className="mt-0.5 text-[13.5px]" style={{ color: "#8fa394" }}>
@@ -98,7 +101,7 @@ export default function BiometricsTransactionsPage() {
           {s.error && <div className={alertErr}>{s.error}</div>}
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-[13px]">
+            <table className="w-full min-w-190 text-left text-[13px]">
               <thead className="bg-[#FAFBFA] text-[11px] uppercase tracking-wide text-[#B6C3BA]">
                 <tr>
                   <th className="px-5 py-2.5 font-semibold">Date</th>
@@ -145,7 +148,10 @@ export default function BiometricsTransactionsPage() {
                 })}
                 {!s.records.length && !s.loading && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-[13px] text-[#8FA394]">
+                    <td
+                      colSpan={6}
+                      className="px-5 py-10 text-center text-[13px] text-[#8FA394]"
+                    >
                       No transactions.
                     </td>
                   </tr>

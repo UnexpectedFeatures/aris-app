@@ -174,12 +174,12 @@ export default function DesktopApp() {
       <UpdateBadge />
       <AuthContext.Provider value={{ signOut, user }}>
         {otaStatus === "checking" && (
-          <div className="fixed bottom-4 right-4 z-[100] rounded-xl bg-[#18251c] px-4 py-3 text-[12px] text-white shadow-lg">
+          <div className="fixed bottom-4 right-4 z-100 rounded-xl bg-[#18251c] px-4 py-3 text-[12px] text-white shadow-lg">
             Installing ARIS updates...
           </div>
         )}
         {otaStatus === "failed" && (
-          <div className="fixed bottom-4 right-4 z-[100] max-w-sm rounded-xl bg-[#c0392b] px-4 py-3 text-[12px] text-white shadow-lg">
+          <div className="fixed bottom-4 right-4 z-100 max-w-sm rounded-xl bg-[#c0392b] px-4 py-3 text-[12px] text-white shadow-lg">
             ARIS update installation failed. Check DevTools and retry after
             fixing the OTA file.
           </div>

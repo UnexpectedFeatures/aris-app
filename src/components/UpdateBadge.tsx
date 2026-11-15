@@ -42,7 +42,7 @@ export function UpdateBadge() {
   };
 
   return (
-    <div className="fixed top-4 right-4 z-[100] w-80 pointer-events-none">
+    <div className="fixed top-4 right-4 z-100 w-80 pointer-events-none">
       <AnimatePresence>
         {shouldShow && (
           <motion.div
@@ -67,7 +67,7 @@ export function UpdateBadge() {
                     <p className="text-sm font-semibold text-error mb-1">
                       Update failed
                     </p>
-                    <p className="text-xs text-on-surface-variant break-words">
+                    <p className="text-xs text-on-surface-variant wrap-break-word">
                       {error}
                     </p>
                   </>
