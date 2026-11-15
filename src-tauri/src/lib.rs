@@ -781,16 +781,21 @@ pub fn run() {
       }
     })
     .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
-      app.handle().plugin(tauri_plugin_oauth::init())?;
-      app.handle().plugin(tauri_plugin_opener::init())?;
-      Ok(())
+        if cfg!(debug_assertions) {
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
+        }
+
+        app.handle().plugin(tauri_plugin_oauth::init())?;
+        app.handle().plugin(tauri_plugin_opener::init())?;
+
+        app.handle()
+            .plugin(tauri_plugin_updater::Builder::new().build())?;
+
+        Ok(())
     })
     .invoke_handler(tauri::generate_handler![
       open_in_app_meet,
