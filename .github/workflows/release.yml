@@ -67,35 +67,19 @@ jobs:
         run: |
           Remove-Item -Recurse -Force src-tauri\target\release\bundle -ErrorAction SilentlyContinue
 
-      - name: Build Tauri app
+      - name: Build and publish Tauri app
+        uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_DATA_MODE: ${{ secrets.VITE_DATA_MODE }}
-
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-
-        run: npm run desktop:package
-
-      - name: Debug - list bundle contents
-        shell: pwsh
-        run: |
-          Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse |
-            Select-Object FullName
-
-      - name: Upload Release Assets to GitHub
-        uses: softprops/action-gh-release@v2
         with:
-          token: ${{ github.token }}
-          tag_name: ${{ steps.version_step.outputs.tag }}
-          name: "Release ${{ steps.version_step.outputs.tag }}"
-          draft: false
+          tagName: ${{ steps.version_step.outputs.tag }}
+          releaseName: "Release ${{ steps.version_step.outputs.tag }}"
+          releaseDraft: false
           prerelease: false
-          files: |
-            src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/bundle/**/*.sig
-          fail_on_unmatched_files: true
