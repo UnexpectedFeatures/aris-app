@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version/tag to build (e.g. 1.3.6 or v1.3.6). Leave empty to use application/package.json version."
+        description: "Release version/tag to build (e.g. 1.3.6 or v1.3.6). Leave empty to use package.json version."
         required: false
         default: ""
 
@@ -17,10 +17,6 @@ jobs:
     permissions:
       contents: write
 
-    defaults:
-      run:
-        working-directory: aris-app
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,24 +25,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: application/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
 
       - name: Determine release tag & auto-sync version
         id: version_step
         shell: pwsh
         run: |
-          $inputVersion = "${{ inputs.version }}"
+          $inputVersion = "${{ github.event.inputs.version }}"
           $rawRef = "${{ github.ref_name }}"
           $targetVersion = ""
 
           if ($inputVersion -ne "") {
             $targetVersion = $inputVersion -replace '^v', ''
-          } elseif ($rawRef -match '^v?(\d+\.\d+\.\d+.*)$') {
-            $targetVersion = $Matches[1]
+          } elseif ($env:GITHUB_REF_TYPE -eq "tag") {
+              $targetVersion = $rawRef -replace '^v', ''
           } else {
-            $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
-            $targetVersion = $pkg.version
+              $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
+              $targetVersion = $pkg.version
           }
 
           $tag = "v$targetVersion"
@@ -63,10 +60,7 @@ jobs:
       - name: Rust build cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "application/src-tauri -> target"
-
-      - name: Install frontend dependencies
-        run: npm ci
+          workspaces: "src-tauri -> target"
 
       - name: Clean previous bundle output
         shell: pwsh
@@ -103,6 +97,6 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            application/src-tauri/target/release/bundle/**/*.exe
-            application/src-tauri/target/release/bundle/**/*.sig
-          fail_on_unmatched_files: false
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.sig
+          fail_on_unmatched_files: true

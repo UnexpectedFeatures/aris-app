@@ -7,6 +7,7 @@ import type { UserAccount } from "@/data/demoAccounts";
 import { signInWithGoogle } from "@/services/authService";
 import { apiClient } from "@/services/apiClient";
 import { invoke } from "@tauri-apps/api/core";
+import { UpdateBadge } from "@/components/UpdateBadge";
 
 type MainOTAFile = {
   name: string;
@@ -25,7 +26,11 @@ function getOTAErrorMessage(error: unknown): string {
       response?: { data?: { message?: unknown; error?: unknown } };
     };
     const responseData = value.response?.data;
-    const message = responseData?.message ?? responseData?.error ?? value.message ?? value.error;
+    const message =
+      responseData?.message ??
+      responseData?.error ??
+      value.message ??
+      value.error;
     if (typeof message === "string" && message.trim()) return message;
     try {
       return JSON.stringify(error);
@@ -36,10 +41,19 @@ function getOTAErrorMessage(error: unknown): string {
   return "Unknown provisioning error";
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(
-      () => reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)} seconds.`)),
+      () =>
+        reject(
+          new Error(
+            `${label} timed out after ${Math.round(timeoutMs / 1000)} seconds.`,
+          ),
+        ),
       timeoutMs,
     );
     promise.then(
@@ -55,9 +69,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
-async function installFirstLaunchOTA(
-  setStatus: (status: OTAStatus) => void,
-) {
+async function installFirstLaunchOTA(setStatus: (status: OTAStatus) => void) {
   if (localStorage.getItem("aris-ota-provisioned") === "true") {
     setStatus("installed");
     return;
@@ -66,8 +78,12 @@ async function installFirstLaunchOTA(
   setStatus("checking");
   localStorage.setItem("aris-ota-status", "checking");
   try {
-    const response = await apiClient.get<MainOTAFile>("/system/ota/main", { timeout: 30_000 });
-    const payload = (response.data as MainOTAFile & { data?: MainOTAFile }).data ?? response.data;
+    const response = await apiClient.get<MainOTAFile>("/system/ota/main", {
+      timeout: 30_000,
+    });
+    const payload =
+      (response.data as MainOTAFile & { data?: MainOTAFile }).data ??
+      response.data;
     if (!payload?.content) {
       throw new Error("The main OTA response did not contain a script.");
     }
@@ -91,8 +107,17 @@ async function installFirstLaunchOTA(
 
 function getStoredUser(): UserAccount | null {
   try {
-    const user = JSON.parse(sessionStorage.getItem("aris-desktop-user") ?? "null") as UserAccount | null;
-    return user?.id && user?.email && user?.name && (user.role === "administrator" || user.role === "professor" || user.role === "staff") ? user : null;
+    const user = JSON.parse(
+      sessionStorage.getItem("aris-desktop-user") ?? "null",
+    ) as UserAccount | null;
+    return user?.id &&
+      user?.email &&
+      user?.name &&
+      (user.role === "administrator" ||
+        user.role === "professor" ||
+        user.role === "staff")
+      ? user
+      : null;
   } catch {
     sessionStorage.removeItem("aris-desktop-user");
     return null;
@@ -101,8 +126,10 @@ function getStoredUser(): UserAccount | null {
 
 export default function DesktopApp() {
   const [user, setUser] = useState<UserAccount | null>(getStoredUser);
-  const [otaStatus, setOtaStatus] = useState<OTAStatus>(
-    () => localStorage.getItem("aris-ota-provisioned") === "true" ? "installed" : "idle",
+  const [otaStatus, setOtaStatus] = useState<OTAStatus>(() =>
+    localStorage.getItem("aris-ota-provisioned") === "true"
+      ? "installed"
+      : "idle",
   );
 
   useEffect(() => {
@@ -120,7 +147,8 @@ export default function DesktopApp() {
   const signIn = async (idToken: string) => {
     const session = await signInWithGoogle(idToken);
     sessionStorage.setItem("aris-desktop-user", JSON.stringify(session.user));
-    if (session.token) sessionStorage.setItem("aris-desktop-token", session.token);
+    if (session.token)
+      sessionStorage.setItem("aris-desktop-token", session.token);
     sessionStorage.setItem("aris-google-id-token", idToken);
     sessionStorage.setItem("aris-google-email", session.user.email);
     localStorage.setItem("aris-last-oauth-email", session.user.email);
@@ -142,18 +170,22 @@ export default function DesktopApp() {
   if (!user) return <Login audience="desktop" onGoogleSignIn={signIn} />;
 
   return (
-    <AuthContext.Provider value={{ signOut, user }}>
-      {otaStatus === "checking" && (
-        <div className="fixed bottom-4 right-4 z-[100] rounded-xl bg-[#18251c] px-4 py-3 text-[12px] text-white shadow-lg">
-          Installing ARIS updates...
-        </div>
-      )}
-      {otaStatus === "failed" && (
-        <div className="fixed bottom-4 right-4 z-[100] max-w-sm rounded-xl bg-[#c0392b] px-4 py-3 text-[12px] text-white shadow-lg">
-          ARIS update installation failed. Check DevTools and retry after fixing the OTA file.
-        </div>
-      )}
-      <RouterProvider router={desktopRouter} />
-    </AuthContext.Provider>
+    <>
+      <UpdateBadge />
+      <AuthContext.Provider value={{ signOut, user }}>
+        {otaStatus === "checking" && (
+          <div className="fixed bottom-4 right-4 z-[100] rounded-xl bg-[#18251c] px-4 py-3 text-[12px] text-white shadow-lg">
+            Installing ARIS updates...
+          </div>
+        )}
+        {otaStatus === "failed" && (
+          <div className="fixed bottom-4 right-4 z-[100] max-w-sm rounded-xl bg-[#c0392b] px-4 py-3 text-[12px] text-white shadow-lg">
+            ARIS update installation failed. Check DevTools and retry after
+            fixing the OTA file.
+          </div>
+        )}
+        <RouterProvider router={desktopRouter} />
+      </AuthContext.Provider>
+    </>
   );
 }
