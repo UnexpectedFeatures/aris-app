@@ -92,7 +92,7 @@ export function UpdateBadge() {
   };
 
   return (
-    <div className="fixed top-4 right-4 z-[100] w-80 pointer-events-none">
+    <div className="fixed top-4 right-4 z-1000 w-80 pointer-events-none">
       <AnimatePresence>
         {shouldShow && (
           <motion.div
