@@ -295,11 +295,7 @@ export default function UserSettings() {
       const message =
         reason instanceof Error ? reason.message : "Unable to update photo.";
       setProfileMessage(message);
-      const err = new Error(message);
-      if (reason instanceof Error) {
-        err.cause = reason;
-      }
-      throw err;
+      throw new Error(message) as Error & { cause?: unknown };
     }
   };
 
