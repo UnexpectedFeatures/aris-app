@@ -275,11 +275,6 @@ export default function ProfSubmit() {
       "Faculty Checker",
   );
 
-  const [recordType, setRecordType] = useState(
-    reviseSubmission?.type === "DTR"
-      ? "Daily Time Record (DTR)"
-      : "Accomplishment Report (AR)",
-  );
   const [period, setPeriod] = useState(
     reviseSubmission?.period ||
       reviseSubmission?.record?.period ||
@@ -331,11 +326,6 @@ export default function ProfSubmit() {
           reviseSubmission.stage ||
           "Faculty Checker",
       );
-      if (reviseSubmission.type === "DTR") {
-        setRecordType("Daily Time Record (DTR)");
-      } else {
-        setRecordType("Accomplishment Report (AR)");
-      }
       if (reviseSubmission.period || reviseSubmission.record?.period) {
         setPeriod(reviseSubmission.period || reviseSubmission.record?.period);
       }
@@ -927,7 +917,7 @@ export default function ProfSubmit() {
     setIsSubmitting(true);
     setSubmitError(null);
 
-    const kind = recordType.startsWith("Accomplishment") ? "AR" : "DTR";
+    const kind = "AR";
     const reference =
       isRevision && revisionRef ? revisionRef : `${kind}-${Date.now()}`;
     const now = new Date().toLocaleString();
@@ -1214,25 +1204,6 @@ export default function ProfSubmit() {
             subtitle="Choose the type of record and the submission cycle."
           />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <FieldLabel>Record Type</FieldLabel>
-              <div className="relative">
-                <select
-                  value={recordType}
-                  onChange={(e) => setRecordType(e.target.value)}
-                  className={`${inputCls} appearance-none pr-10`}
-                  style={inputStyle}
-                >
-                  <option>Accomplishment Report (AR)</option>
-                  <option>Daily Time Record (DTR)</option>
-                </select>
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute right-4 top-1/2 h-2 w-2 -translate-y-[3px] rotate-45 border-b-2 border-r-2"
-                  style={{ borderColor: "#111c14" }}
-                />
-              </div>
-            </div>
             <div>
               <FieldLabel>Period</FieldLabel>
               <div className="relative">
