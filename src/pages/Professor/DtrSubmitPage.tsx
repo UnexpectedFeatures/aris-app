@@ -8,10 +8,11 @@ import {
   loadTransactions,
   useTransactionsStore,
 } from "@/stores/biometricsTransactionsStore";
+import { fetchBiometricsTransactions } from "@/services/biometricsService";
 import { useAuth } from "@/app/authContext";
 import { saveResource } from "@/services/dataSource";
 
-type DtrPeriod = "first-half" | "second-half";
+type DtrPeriod = "first-half" | "second-half" | "whole-month";
 
 function currentMonth() {
   const now = new Date();
@@ -44,12 +45,31 @@ export function getDtrDateRange(monthValue: string, period: DtrPeriod) {
     31,
   ][month - 1];
   const monthText = String(month).padStart(2, "0");
-  const startDay = period === "first-half" ? 1 : 16;
-  const endDay = period === "first-half" ? 15 : daysInMonth;
+  const monthName = new Date(`${year}-${month}-01`).toLocaleString("en-PH", {
+    month: "long",
+  });
   const formatDate = (day: number) =>
     `${match[1]}-${monthText}-${String(day).padStart(2, "0")}`;
 
-  return { startDate: formatDate(startDay), endDate: formatDate(endDay) };
+  const startDay =
+    period === "whole-month"
+      ? 1
+      : period === "first-half"
+      ? 1
+      : 16;
+  const endDay =
+    period === "whole-month"
+      ? daysInMonth
+      : period === "first-half"
+      ? 15
+      : daysInMonth;
+
+  const periodLabel =
+    period === "whole-month"
+      ? `${monthName} ${year} (Whole Month)`
+      : `${monthName} ${year} (${period === "first-half" ? "1–15" : "16–end"})`;
+
+  return { startDate: formatDate(startDay), endDate: formatDate(endDay), periodLabel };
 }
 
 const fieldClass =
@@ -66,6 +86,73 @@ export default function DtrSubmitPage() {
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicatePeriod, setDuplicatePeriod] = useState<string | null>(null);
+  const [duplicateModalConfirmed, setDuplicateModalConfirmed] = useState(false);
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [monthsLoading, setMonthsLoading] = useState(true);
+
+  const handleDuplicateModalClose = () => setShowDuplicateModal(false);
+  const handleDuplicateModalConfirm = () => {
+    setDuplicateModalConfirmed(true);
+    setShowDuplicateModal(false);
+  };
+
+  // Load months that have biometric data so the selector only shows valid options
+  const loadAvailableMonths = async () => {
+    try {
+      const now = new Date();
+      const startDate = `${now.getFullYear() - 1}-01-01`;
+      const endDate = `${now.getFullYear() + 1}-12-31`;
+
+      const body = await fetchBiometricsTransactions({
+        page: 1,
+        limit: 2000,
+        emp_code: "",
+        start_date: startDate,
+        end_date: endDate,
+      });
+
+      const records = (body?.data ?? []) as Array<{ punch_time: string }>;
+      const monthSet = new Set<string>();
+      records.forEach((rec) => {
+        const d = new Date(rec.punch_time);
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        monthSet.add(ym);
+      });
+
+      const months = Array.from(monthSet).sort();
+      setAvailableMonths(months);
+
+      // Default to current month if it has data, else first available month
+      const current = currentMonth();
+      if (months.includes(current)) {
+        setMonth(current);
+      } else if (months.length > 0) {
+        setMonth(months[0]);
+      }
+    } catch {
+      // Fall back to current month if discovery fails
+      setMonth(currentMonth());
+    } finally {
+      setMonthsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAvailableMonths();
+  }, []);
+
+  const [modalAnimate, setModalAnimate] = useState(false);
+
+  // Animate modal in when it opens
+  useEffect(() => {
+    if (showDuplicateModal) {
+      setModalAnimate(true);
+    } else {
+      setModalAnimate(false);
+    }
+  }, [showDuplicateModal]);
 
   const loading = s.loading;
   const error = localError ?? s.error;
@@ -95,23 +182,58 @@ export default function DtrSubmitPage() {
     void fetchRange();
   }, [month, period]);
 
+  const checkExistingSubmission = (periodLabel: string) => {
+    const auditKeys = [
+      "aris:demo:/audit",
+      `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
+    ];
+    for (const k of auditKeys) {
+      try {
+        const stored = localStorage.getItem(k);
+        if (stored) {
+          const parsed = JSON.parse(stored) as unknown;
+          const isArr = Array.isArray(parsed);
+          const logs: unknown[] = isArr
+            ? (parsed as unknown[])
+            : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
+          // Check if any existing entry has the same period label
+          const matchingEntry = (logs as Array<{
+            action: string;
+            target: string;
+          }>).find(
+            (entry) =>
+              entry?.action?.includes(periodLabel) ||
+              entry?.target?.includes(periodLabel)
+          );
+          if (matchingEntry) {
+            return true;
+          }
+        }
+      } catch {
+        /* ignore per-key errors */
+      }
+    }
+    return false;
+  };
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
     setSubmitError(null);
     setSubmitNotice(null);
 
+    // Check for existing submission in the same month/period
+    const { startDate, endDate, periodLabel } = getDtrDateRange(month, period);
+    const hasExisting = checkExistingSubmission(periodLabel);
+
+    if (hasExisting && !duplicateModalConfirmed) {
+      setShowDuplicateModal(true);
+      setDuplicatePeriod(periodLabel);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // If we get here, either no duplicate or user confirmed the modal
     try {
-      const { startDate, endDate } = getDtrDateRange(month, period);
-
-      // Human-readable period label e.g. "November 2026 (1–15)"
-      const [yr, mo] = month.split("-");
-      const monthName = new Date(`${yr}-${mo}-01`).toLocaleString("en-PH", {
-        month: "long",
-        timeZone: "UTC",
-      });
-      const halfLabel = period === "first-half" ? "1–15" : "16–end";
-      const periodLabel = `${monthName} ${yr} (${halfLabel})`;
-
       const reference = `DTR-${Date.now()}`;
       const now = new Date().toLocaleString();
       const facultyName = user?.name?.toUpperCase() ?? "Faculty";
@@ -172,59 +294,59 @@ export default function DtrSubmitPage() {
       };
 
       // Sync local demo audit store so History immediately shows the new submission
+  try {
+    const auditKeys = [
+      "aris:demo:/audit",
+      `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
+    ];
+    const initials = facultyName
+      .split(" ")
+      .map((w: string) => w[0] ?? "")
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+    const newAuditEntry = {
+      id: reference,
+      actor: facultyName,
+      init: initials,
+      type: "DTR",
+      action: `DTR submitted · ${periodLabel}`,
+      target: `${periodLabel} · ${s.records.length} punch records`,
+      time: now,
+      result: "Pending",
+      stage: "Checker",
+      stage_role: "Checker",
+      stage_key: "DTR-AP-STG-1",
+      approval_stage: "DTR-AP-STG-1",
+      stage_order: 1,
+      record: record.record,
+    };
+    for (const k of auditKeys) {
       try {
-        const auditKeys = [
-          "aris:demo:/audit",
-          `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
-        ];
-        const initials = facultyName
-          .split(" ")
-          .map((w: string) => w[0] ?? "")
-          .join("")
-          .slice(0, 2)
-          .toUpperCase();
-        const newAuditEntry = {
-          id: reference,
-          actor: facultyName,
-          init: initials,
-          type: "DTR",
-          action: `DTR submitted · ${periodLabel}`,
-          target: `${periodLabel} · ${s.records.length} punch records`,
-          time: now,
-          result: "Pending",
-          stage: "Checker",
-          stage_role: "Checker",
-          stage_key: "DTR-AP-STG-1",
-          approval_stage: "DTR-AP-STG-1",
-          stage_order: 1,
-          record: record.record,
-        };
-        for (const k of auditKeys) {
-          try {
-            const stored = localStorage.getItem(k);
-            if (stored) {
-              const parsed = JSON.parse(stored) as unknown;
-              const isArr = Array.isArray(parsed);
-              const logs: unknown[] = isArr
-                ? (parsed as unknown[])
-                : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
-              const next = [newAuditEntry, ...logs];
-              localStorage.setItem(
-                k,
-                JSON.stringify(
-                  isArr ? next : { ...(parsed as object), logs: next },
-                ),
-              );
-            } else {
-              localStorage.setItem(k, JSON.stringify([newAuditEntry]));
-            }
-          } catch {
-            /* ignore per-key errors */
-          }
+        const stored = localStorage.getItem(k);
+        if (stored) {
+          const parsed = JSON.parse(stored) as unknown;
+          const isArr = Array.isArray(parsed);
+          const logs: unknown[] = isArr
+            ? (parsed as unknown[])
+            : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
+          const next = [newAuditEntry, ...logs];
+          localStorage.setItem(
+            k,
+            JSON.stringify(
+              isArr ? next : { ...(parsed as object), logs: next },
+            ),
+          );
+        } else {
+          localStorage.setItem(k, JSON.stringify([newAuditEntry]));
         }
-      } catch (syncErr) {
-        console.warn("Could not sync local audit store:", syncErr);
+      } catch {
+        /* ignore per-key errors */
       }
+    }
+  } catch (syncErr) {
+    console.warn("Could not sync local audit store:", syncErr);
+  }
 
       // 1. Try the dedicated DTR endpoint first
       try {
@@ -263,21 +385,76 @@ export default function DtrSubmitPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void fetchRange();
+          void handleSubmit();
         }}
         className="mb-6 rounded-2xl border border-[#e8eeea] bg-white p-5 shadow-sm"
         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
       >
+        {showDuplicateModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/40"
+          >
+            <div
+              className={`bg-white rounded-xl p-6 max-w-md w-full shadow-2xl transition-all duration-300 ease-out ${modalAnimate ? "scale-100 opacity-100" : "scale-95 opacity-0"}`}
+              style={{}}
+            >
+              <h3 className="text-xl font-bold text-[#111c14] mb-4">
+                DTR Already Submitted
+              </h3>
+              <p className="text-[#5a6b5e] mb-6">
+                You have already submitted a DTR for {duplicatePeriod}. Would you like to submit again for this month?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleDuplicateModalClose}
+                  className="flex-1 rounded-xl border px-5 py-2.5 text-[13px] font-semibold text-[#5a6b5e] transition-all hover:bg-[#f7f9f8] active:scale-[0.98]"
+                  style={{ borderColor: "#e8eeea" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDuplicateModalConfirm}
+                  className="flex-1 rounded-xl px-5 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
+                  style={{ background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)" }}
+                >
+                  Submit Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
           <label className="grid text-[11px] font-bold uppercase tracking-wider text-[#5a6b5e]">
             Month and year
-            <input
-              type="month"
+            <select
               required
               value={month}
               onChange={(e) => setMonth(e.target.value)}
               className={fieldClass}
-            />
+              disabled={monthsLoading}
+            >
+              {monthsLoading ? (
+                <option disabled>Loading months…</option>
+              ) : availableMonths.length === 0 ? (
+                <option disabled>No transactions found</option>
+              ) : (
+                availableMonths.map((m) => {
+                  const [yr, mo] = m.split("-");
+                  const monthName = new Date(`${yr}-${mo}-01`).toLocaleString("en-PH", {
+                    month: "long",
+                    timeZone: "UTC",
+                  });
+                  return (
+                    <option key={m} value={m}>
+                      {monthName} {yr}
+                    </option>
+                  );
+                })
+              )}
+            </select>
           </label>
           <label className="grid text-[11px] font-bold uppercase tracking-wider text-[#5a6b5e]">
             Period
@@ -288,6 +465,7 @@ export default function DtrSubmitPage() {
             >
               <option value="first-half">1–15</option>
               <option value="second-half">16–end of month</option>
+              <option value="whole-month">Whole month</option>
             </select>
           </label>
           <button

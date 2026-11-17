@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { PageTitle } from "@/components/ui";
 import { useAuth } from "@/app/authContext";
@@ -15,6 +15,11 @@ import {
   type MeetTeachingLoadAutofill,
 } from "@/services/meetAutofillService";
 import { fetchMeetingsFromDb } from "@/services/meetingService";
+
+function currentMonthName() {
+  const now = new Date();
+  return now.toLocaleString("en-PH", { month: "long", timeZone: "UTC" });
+}
 
 export type DbCourse = {
   id: string;
@@ -278,8 +283,10 @@ export default function ProfSubmit() {
   const [period, setPeriod] = useState(
     reviseSubmission?.period ||
       reviseSubmission?.record?.period ||
-      "September Cycle 1",
+      currentMonthName(),
   );
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [monthsLoading, setMonthsLoading] = useState(true);
   const [facultyName, setFacultyName] = useState(
     reviseSubmission?.record?.facultyName || user.name.toUpperCase(),
   );
@@ -294,6 +301,145 @@ export default function ProfSubmit() {
   const [availableCourses, setAvailableCourses] = useState<DbCourse[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false);
+
+  // Discover months that have AR or MEET data so the period selector only shows valid options
+  const loadAvailableMonths = async () => {
+    try {
+      const monthSet = new Set<string>();
+
+      // 1. Gather months from meeting data
+      try {
+        const meetings = await fetchMeetingsFromDb(user?.email);
+        meetings.forEach((m) => {
+          if (m.meeting_date) {
+            const d = new Date(m.meeting_date);
+            if (!isNaN(d.getTime())) {
+              monthSet.add(
+                d.toLocaleString("en-PH", {
+                  month: "long",
+                  timeZone: "UTC",
+                }),
+              );
+            }
+          }
+        });
+      } catch {
+        /* ignore meet fetch errors */
+      }
+
+      // 2. Gather months from existing AR submissions
+      try {
+        const arRecords = await loadResource(
+          "/professor/accomplishment-reports",
+          [],
+        );
+        const records = Array.isArray(arRecords) ? arRecords : [];
+        records.forEach((r: any) => {
+          const p = r?.period || r?.record?.period;
+          if (p && typeof p === "string") {
+            // Extract month name from period like "September 2026 (Whole Month)" or "September"
+            const monthMatch = p.match(/^([A-Za-z]+)/);
+            if (monthMatch) {
+              monthSet.add(monthMatch[1]);
+            }
+          }
+        });
+      } catch {
+        /* ignore AR fetch errors */
+      }
+
+      const months = Array.from(monthSet).sort();
+      setAvailableMonths(months);
+
+      // Ensure the current period is valid; if not, default to first available or current month
+      const current = period;
+      if (!months.includes(current)) {
+        if (months.length > 0) {
+          setPeriod(months[0]);
+        } else {
+          setPeriod(currentMonthName());
+        }
+      }
+    } catch {
+      setAvailableMonths([]);
+    } finally {
+      setMonthsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAvailableMonths();
+  }, [user?.email]);
+
+  const lastAutoFilledMonth = useRef<string | null>(null);
+
+  // Auto-fill courses from Google Meet data when the period/month changes
+  useEffect(() => {
+    if (monthsLoading || !period) return;
+
+    const runAutoFill = async () => {
+      try {
+        const meetings = await fetchMeetingsFromDb(user?.email);
+
+        // Filter meetings that fall within the selected month
+        const [monthName] = period.split(" ");
+        const targetMonth = monthName
+          ? new Date(`${monthName} 1, ${new Date().getFullYear()}`).getMonth()
+          : -1;
+
+        const filtered = meetings.filter((m) => {
+          if (!m.meeting_date) return false;
+          const d = new Date(m.meeting_date);
+          if (isNaN(d.getTime())) return false;
+          return d.getMonth() === targetMonth;
+        });
+
+        if (filtered.length === 0) return;
+
+        // Convert SavedMeetingRecord[] → MeetTeachingLoadAutofill[]
+        const autofillItems: MeetTeachingLoadAutofill[] = filtered.map((m) => {
+          const parsed = parseCourseString(m.course ?? "", availableCourses);
+          const meetingDate = new Date(m.meeting_date);
+          const startTime = m.start_time ? new Date(`1970-01-01T${m.start_time}`) : null;
+          const endTime = m.end_time ? new Date(`1970-01-01T${m.end_time}`) : null;
+
+          let meetingTime = "";
+          if (startTime && endTime) {
+            meetingTime = `${formatTime12(startTime)} – ${formatTime12(endTime)}`;
+          } else if (m.start_time) {
+            meetingTime = m.start_time;
+          }
+
+          return {
+            id: m.id,
+            meetingId: m.id,
+            userEmail: user?.email,
+            userId: user?.id,
+            courseCode: parsed.courseCode,
+            courseTitle: parsed.courseTitle,
+            section: parsed.section,
+            units: parsed.units,
+            meetingDate: m.meeting_date,
+            meetingDay: getDayAbbrev(meetingDate),
+            meetingTime,
+            meetingCode: m.meeting_code || `MEET-${m.id}`,
+            durationMinutes: m.duration_minutes ?? 0,
+            topics: m.info || `${parsed.courseCode} ONLINE CLASS LECTURE & DISCUSSION`,
+            tasks: "Lecture and Discussion, Activity",
+            campus: m.campus || "CONGRESS",
+            createdAt: m.created_at || new Date().toISOString(),
+          };
+        });
+
+        applyMeetAutofill(autofillItems);
+        lastAutoFilledMonth.current = period;
+      } catch (err) {
+        console.warn("Auto-fill from Meet failed:", err);
+      }
+    };
+
+    void runAutoFill();
+  }, [period, user?.email, monthsLoading, availableCourses.length]);
 
   // Course blocks in report
   const initialCourses = useMemo(() => {
@@ -376,7 +522,19 @@ export default function ProfSubmit() {
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicatePeriod, setDuplicatePeriod] = useState<string | null>(null);
+  const [duplicateModalConfirmed, setDuplicateModalConfirmed] = useState(false);
+  const [modalAnimate, setModalAnimate] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Animate modal in when it opens
+  useEffect(() => {
+    if (showDuplicateModal) {
+      setModalAnimate(true);
+    } else {
+      setModalAnimate(false);
+    }
+  }, [showDuplicateModal]);
 
   // Google Meet Auto-Fill state
   const [autofillBanner, setAutofillBanner] = useState<{
@@ -912,10 +1070,53 @@ export default function ProfSubmit() {
   };
 
   /* ── 5. Form submission ── */
+  const checkExistingSubmission = (periodLabel: string) => {
+    const auditKeys = [
+      "aris:demo:/audit",
+      `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
+    ];
+    for (const k of auditKeys) {
+      try {
+        const stored = localStorage.getItem(k);
+        if (stored) {
+          const parsed = JSON.parse(stored) as unknown;
+          const isArr = Array.isArray(parsed);
+          const logs: unknown[] = isArr
+            ? (parsed as unknown[])
+            : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
+          // Check if any existing entry has the same period label
+          const matchingEntry = (logs as Array<{
+            action: string;
+            target: string;
+          }>).find(
+            (entry) =>
+              entry?.action?.includes(periodLabel) ||
+              entry?.target?.includes(periodLabel)
+          );
+          if (matchingEntry) {
+            return true;
+          }
+        }
+      } catch {
+        /* ignore per-key errors */
+      }
+    }
+    return false;
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitError(null);
+
+    // Check for existing submission in the same month/period
+    const hasExisting = checkExistingSubmission(period);
+    if (hasExisting && !duplicateModalConfirmed) {
+      setShowDuplicateModal(true);
+      setDuplicatePeriod(period);
+      setIsSubmitting(false);
+      return;
+    }
 
     const kind = "AR";
     const reference =
@@ -1190,6 +1391,45 @@ export default function ProfSubmit() {
         </div>
       )}
 
+      {showDuplicateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/40"
+        >
+          <div
+            className={`bg-white rounded-xl p-6 max-w-md w-full shadow-2xl transition-all duration-300 ease-out ${modalAnimate ? "scale-100 opacity-100" : "scale-95 opacity-0"}`}
+            style={{}}
+          >
+            <h3 className="text-xl font-bold text-[#111c14] mb-4">
+              AR Already Submitted
+            </h3>
+            <p className="text-[#5a6b5e] mb-6">
+              You have already submitted an AR for {duplicatePeriod}. Would you like to submit again for this month?
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDuplicateModal(false)}
+                className="flex-1 rounded-xl border px-5 py-2.5 text-[13px] font-semibold text-[#5a6b5e] transition-all hover:bg-[#f7f9f8] active:scale-[0.98]"
+                style={{ borderColor: "#e8eeea" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateModalConfirmed(true);
+                  setShowDuplicateModal(false);
+                }}
+                className="flex-1 rounded-xl px-5 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
+                style={{ background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)" }}
+              >
+                Submit Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <form
         id="submit-form"
         onSubmit={handleSubmit}
@@ -1201,7 +1441,7 @@ export default function ProfSubmit() {
           <SectionHeader
             num="01"
             title="Record Information"
-            subtitle="Choose the type of record and the submission cycle."
+            subtitle="Choose the type of record and the submission month."
           />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
@@ -1212,12 +1452,19 @@ export default function ProfSubmit() {
                   onChange={(e) => setPeriod(e.target.value)}
                   className={`${inputCls} appearance-none pr-10`}
                   style={inputStyle}
+                  disabled={monthsLoading}
                 >
-                  <option>September Cycle 1</option>
-                  <option>September Cycle 2</option>
-                  <option>October Cycle 1</option>
-                  <option>October Cycle 2</option>
-                  <option>November Cycle 1</option>
+                  {monthsLoading ? (
+                    <option disabled>Loading months…</option>
+                  ) : availableMonths.length === 0 ? (
+                    <option disabled>No AR or MEET data found</option>
+                  ) : (
+                    availableMonths.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))
+                  )}
                 </select>
                 <span
                   aria-hidden="true"
