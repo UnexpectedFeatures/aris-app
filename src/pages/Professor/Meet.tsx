@@ -519,7 +519,6 @@ export default function ProfMeet() {
 
   // Fetch purely real meeting records from database
   const loadDbMeetings = async () => {
-    setIsLoadingMeetings(true);
     try {
       const dbRecords = await fetchMeetingsFromDb();
       const mapped: MeetSession[] = (dbRecords || []).map((raw) => {
@@ -595,8 +594,6 @@ export default function ProfMeet() {
       } catch {}
     } catch (err) {
       console.warn("Failed to load meetings from database:", err);
-    } finally {
-      setIsLoadingMeetings(false);
     }
   };
 
