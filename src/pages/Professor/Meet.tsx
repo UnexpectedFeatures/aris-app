@@ -1,6 +1,5 @@
 /* eslint-disable no-empty */
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -178,7 +177,6 @@ function formatDuration(seconds: number): string {
 /* ─── Main Component ───────────────────────────────────────────────────────── */
 
 export default function ProfMeet() {
-  const navigate = useNavigate();
   const { user } = useAuth();
 
   // Authenticator (USB fingerprint device)
@@ -227,8 +225,6 @@ export default function ProfMeet() {
       return [];
     }
   });
-
-  const [isLoadingMeetings, setIsLoadingMeetings] = useState(true);
 
   // Join by code state
   const [joinInput, setJoinInput] = useState("");

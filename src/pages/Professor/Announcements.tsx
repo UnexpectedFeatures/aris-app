@@ -4,12 +4,7 @@ import { Card, PageTitle, Badge, Tabs, initialsColor, GhostButton } from "@/comp
 import { useResource } from "@/hooks/useResource";
 import { saveResource } from "@/services/dataSource";
 
-const demoPosts = [
-  { id: "demo-1", title: "AR submission closes Friday 5 PM", body: "All Accomplishment Reports for September Cycle 1 must be submitted before the Friday 5:00 PM cut-off. Late entries roll to the next cycle.", tag: "AR / DTR", tone: "green" as const, initials: "AR", date: "1 hour ago", pinned: true },
-  { id: "demo-2", title: "System maintenance: Sept 10, 2–4 AM", body: "ARIS will be briefly unavailable during scheduled maintenance. Submit any pending AR / DTR records before the window opens.", tag: "System", tone: "amber" as const, initials: "SY", date: "2 days ago", pinned: true },
-  { id: "demo-3", title: "AI/ML anomaly: late-submission spike", body: "The analytics engine detected a rise in after-hours DTR submissions. A reminder will auto-send Thursday 3 PM to reduce the Friday backlog.", tag: "AI / ML", tone: "blue" as const, initials: "AI", date: "2 days ago", pinned: false },
-  { id: "demo-4", title: "DTR name must match the official roster", body: "Please ensure the name on your DTR matches your roster entry exactly — mismatches are flagged and delay verification.", tag: "AR / DTR", tone: "green" as const, initials: "DT", date: "4 days ago", pinned: false },
-];
+
 
 type UnifiedItem = {
   id: string;
@@ -88,13 +83,17 @@ export default function ProfAnnouncements() {
       next.add(id);
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
-      } catch {}
+      } catch (e) {
+        console.warn("Failed to persist read state:", e);
+      }
       return next;
     });
 
     try {
       await saveResource(`/notifications/${id}/read`, undefined, "PATCH");
-    } catch {}
+    } catch (e) {
+      console.warn("Failed to mark notification as read:", e);
+    }
   };
 
   const toggleRead = (id: string, e?: React.MouseEvent) => {
@@ -105,7 +104,9 @@ export default function ProfAnnouncements() {
         next.delete(id);
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
-        } catch {}
+        } catch (e) {
+          console.warn("Failed to persist read state:", e);
+        }
         return next;
       });
     } else {
@@ -119,7 +120,9 @@ export default function ProfAnnouncements() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(allIds));
       await saveResource("/notifications/read-all", undefined, "PATCH");
-    } catch {}
+    } catch (e) {
+      console.warn("Failed to mark all notifications as read:", e);
+    }
   };
 
   // Unify announcements and notifications into a single deduplicated feed

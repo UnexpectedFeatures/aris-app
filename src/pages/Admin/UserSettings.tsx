@@ -209,7 +209,7 @@ export default function UserSettings() {
   }, [profile, defaultPosition]);
 
   const handleSaveProfile = async (updatedData: ProfileModalData) => {
-    const patchPayload: Record<string, any> = {
+    const patchPayload: Record<string, string | null> = {
       firstname: updatedData.firstname.trim(),
       middlename: updatedData.middlename?.trim() || null,
       lastname: updatedData.lastname.trim(),
@@ -259,7 +259,9 @@ export default function UserSettings() {
         }
       }
       window.dispatchEvent(new Event("aris-user-updated"));
-    } catch {}
+    } catch (err) {
+      console.warn("Failed to update session storage:", err);
+    }
 
     setEditModalOpen(false);
     void reloadProfile();
@@ -286,12 +288,14 @@ export default function UserSettings() {
           }
         }
         window.dispatchEvent(new Event("aris-user-updated"));
-      } catch {}
+      } catch (err) {
+        console.warn("Failed to update session storage:", err);
+      }
     } catch (reason) {
       const message =
         reason instanceof Error ? reason.message : "Unable to update photo.";
       setProfileMessage(message);
-      throw new Error(message);
+      throw new Error(message, { cause: reason });
     }
   };
 

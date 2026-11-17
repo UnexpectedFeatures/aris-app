@@ -60,7 +60,7 @@ export function parseCourseString(
   for (const c of availableCourses) {
     if (c.code && trimmed.toUpperCase().includes(c.code.toUpperCase())) {
       let section = "BSIT 2B";
-      const secMatch = trimmed.match(/[·\-–]\s*([A-Z0-9\s\-]+?)(?:\s*\(|$)/i);
+      const secMatch = trimmed.match(/[·–-]\s*([A-Z0-9\s-]+?)(?:\s*\(|$)/i);
       if (secMatch && secMatch[1]) {
         section = secMatch[1].trim().toUpperCase();
       }
@@ -78,7 +78,7 @@ export function parseCourseString(
   if (codeMatch) {
     const courseCode = codeMatch[1].toUpperCase();
     let section = "BSIT 2B";
-    const secMatch = trimmed.match(/[·\-–]\s*([A-Z0-9\s\-]+?)(?:\s*\(|$)/i);
+    const secMatch = trimmed.match(/[·–-]\s*([A-Z0-9\s-]+?)(?:\s*\(|$)/i);
     if (secMatch && secMatch[1]) {
       section = secMatch[1].trim().toUpperCase();
     }
@@ -135,7 +135,9 @@ export function queueMeetTeachingLoadAutofill(
           "aris:meet_pending_teaching_load",
           JSON.stringify([item]),
         );
-      } catch {}
+      } catch (err) {
+        console.warn("Failed to save pending autofill:", err);
+      }
     }
 
     // Dispatch window custom event so an active Submit page receives it immediately
@@ -174,7 +176,9 @@ export function clearPendingMeetTeachingLoadAutofills(userKey?: string): void {
       localStorage.removeItem(pendingKey(userKey));
     }
     localStorage.removeItem("aris:meet_pending_teaching_load");
-  } catch {}
+  } catch (err) {
+    console.warn("Failed to clear pending autofill:", err);
+  }
 }
 
 export function recordAppliedMeetAutofills(
@@ -187,7 +191,9 @@ export function recordAppliedMeetAutofills(
     const list: MeetTeachingLoadAutofill[] = raw ? JSON.parse(raw) : [];
     const combined = [...list, ...items];
     localStorage.setItem(key, JSON.stringify(combined.slice(-30)));
-  } catch {}
+  } catch (err) {
+    console.warn("Failed to record applied autofill:", err);
+  }
 }
 
 export function getAppliedMeetAutofills(userKey?: string): MeetTeachingLoadAutofill[] {
