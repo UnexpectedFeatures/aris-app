@@ -20,6 +20,7 @@ export interface SavedMeetingRecord {
   created_at?: string;
   auth_in?: boolean;
   auth_out?: boolean;
+  campus?: string;
 }
 
 export interface SaveMeetingPayload {

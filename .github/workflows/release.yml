@@ -83,3 +83,50 @@ jobs:
           releaseName: "Release ${{ steps.version_step.outputs.tag }}"
           releaseDraft: false
           prerelease: false
+
+  notify:
+    needs: [publish-tauri]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord release message
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.publish-tauri.outputs.tag }}
+          VERSION: ${{ needs.publish-tauri.outputs.version }}
+          RELEASE_URL: "https://github.com/${{ github.repository }}/releases/tag/${{ needs.publish-tauri.outputs.tag }}"
+        run: |
+          NOTES=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body -q .body | cut -c1-1000)
+          [ -z "$NOTES" ] && NOTES="No notes."
+
+          case "$GITHUB_REPOSITORY" in
+            *aris-app*) COLOR=16711680;;
+            *aris-vista*) COLOR=65280;;
+            *) COLOR=255;;
+          esac
+
+          JSON=$(jq -n \
+            --arg title "New Release: $TAG" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg user "$GITHUB_ACTOR" \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg url "$RELEASE_URL" \
+            --arg time "$(date -u)" \
+            --argjson color "$COLOR" \
+            '{
+              embeds: [{
+                title: $title,
+                color: $color,
+                fields: [
+                  { name: "Repository", value: $repo, inline: true },
+                  { name: "User", value: $user, inline: true },
+                  { name: "Version", value: $version, inline: true },
+                  { name: "Release Notes", value: $notes, inline: false },
+                  { name: "Release URL", value: $url, inline: false },
+                  { name: "Time", value: $time, inline: false }
+                ]
+              }]
+            }')
+
+          curl -H "Content-Type: application/json" -d "$JSON" "$DISCORD_RELEASE_WEBHOOK"
