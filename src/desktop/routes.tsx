@@ -79,6 +79,7 @@ export const desktopRouter = createHashRouter([
       { path: "support", element: <Navigate to="/staff/tickets" replace /> },
       { path: "chat", element: <Navigate to="/staff/tickets" replace /> },
       { path: "settings", Component: UserSettings },
+      { path: "settings/system", Component: SystemSettings },
       { path: "*", Component: StaffOverview },
     ],
   },
@@ -102,7 +103,7 @@ export const desktopRouter = createHashRouter([
       { path: "chat", element: <Navigate to="/prof/tickets" replace /> },
       {
         path: "settings/system",
-        element: <Navigate to="/prof/settings/preferences" replace />,
+        Component: SystemSettings,
       },
       { path: "settings/preferences", Component: UserSettings },
       {
