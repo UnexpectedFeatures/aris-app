@@ -195,6 +195,117 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 // ─── User (professor) view ────────────────────────────────────────────────────
 
+const TUTORIAL: { title: string; body: string }[] = [
+  {
+    title: "Connect the authenticator",
+    body: "Plug the ARIS authenticator into a USB port on this workstation. Close any Arduino Serial Monitor first.",
+  },
+  {
+    title: "Set the COM port",
+    body: "Click Refresh, pick the authenticator from the COM port list, then press Connect. The status badge should turn green.",
+  },
+  {
+    title: "Go to the Meet page",
+    body: "Keep the authenticator connected and open the Meet page from the sidebar.",
+  },
+  {
+    title: "Launch a meet",
+    body: "Start your meet while the authenticator is connected. Attendance is captured through the fingerprint sensor.",
+  },
+];
+
+function HowToUse({
+  hasPorts,
+  connected,
+}: {
+  hasPorts: boolean;
+  connected: boolean;
+}) {
+  // Steps 1–2 are detectable from device state; 3–4 happen on other pages.
+  const done = [hasPorts || connected, connected, false, false];
+  const current = done.findIndex((d) => !d);
+
+  return (
+    <div
+      className="rounded-3xl bg-white p-5 shadow-[0_1px_2px_rgba(16,32,20,0.05)]"
+      style={{ border: "1px solid #e8ecea" }}
+    >
+      <h2 className="text-[14px] font-semibold" style={{ color: "#111c14" }}>
+        How to use
+      </h2>
+      <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>
+        Follow these steps to take attendance with the authenticator.
+      </p>
+
+      <ol className="mt-4">
+        {TUTORIAL.map((s, i) => {
+          const isDone = done[i];
+          const isCurrent = i === current;
+          const dot = isDone
+            ? "border-[#047857] bg-[#047857] text-white"
+            : isCurrent
+              ? "border-[#047857] bg-white text-[#047857]"
+              : "border-[#D6D6D6] bg-white text-[#64748B]";
+          return (
+            <li key={s.title} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${dot}`}
+                >
+                  {isDone ? "✓" : i + 1}
+                </span>
+                {i < TUTORIAL.length - 1 && (
+                  <span
+                    className={`my-1 w-px flex-1 ${
+                      isDone ? "bg-[#047857]" : "bg-[#D6D6D6]"
+                    }`}
+                  />
+                )}
+              </div>
+              <div className="pb-5 last:pb-0">
+                <p
+                  className="text-[13px] font-semibold"
+                  style={{ color: "#111c14" }}
+                >
+                  {s.title}
+                </p>
+                <p
+                  className="mt-0.5 text-[12px] leading-relaxed"
+                  style={{ color: "#8fa394" }}
+                >
+                  {s.body}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      {connected && (
+        <div className={`${alertOk} mt-4`}>
+          Authenticator connected. Go to the Meet page and launch your meet.
+        </div>
+      )}
+
+      <div
+        className="mt-4 border-t pt-3 text-[12px]"
+        style={{ borderColor: "#f0f4f1", color: "#8fa394" }}
+      >
+        <p className="font-medium" style={{ color: "#111c14" }}>
+          Troubleshooting
+        </p>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+          <li>No port listed? Re-plug the USB cable, then press Refresh.</li>
+          <li>
+            Connecting may reboot the device (~3 s). Wait before retrying.
+          </li>
+          <li>Don&apos;t disconnect while a meet is running.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 function ProfessorAuthenticatorPage() {
   const a = useAuthenticator();
   const [port, setPort] = useState("");
@@ -222,7 +333,7 @@ function ProfessorAuthenticatorPage() {
   }, [status.connected, status.portName]);
 
   return (
-    <div className="pb-8 max-w-2xl mx-auto">
+    <div className="pb-8 max-w-5xl mx-auto">
       {/* Page header */}
       <div className="mb-6">
         <h1
@@ -246,111 +357,121 @@ function ProfessorAuthenticatorPage() {
         </div>
       )}
 
-      {/* ── Device connection card ── */}
-      <div
-        className="rounded-3xl bg-white p-5 shadow-[0_1px_2px_rgba(16,32,20,0.05)]"
-        style={{
-          border: status.connected ? "1px solid #d7ebdd" : "1px solid #e8ecea",
-        }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2
-              className="text-[14px] font-semibold"
-              style={{ color: "#111c14" }}
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+        {/* ── Device connection card ── */}
+        <div
+          className="rounded-3xl bg-white p-5 shadow-[0_1px_2px_rgba(16,32,20,0.05)]"
+          style={{
+            border: status.connected
+              ? "1px solid #d7ebdd"
+              : "1px solid #e8ecea",
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2
+                className="text-[14px] font-semibold"
+                style={{ color: "#111c14" }}
+              >
+                Device Connection
+              </h2>
+              <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
+                Select the COM port for the ARIS authenticator.
+              </p>
+            </div>
+            <Badge tone={status.connected ? "green" : "gray"} dot>
+              {connLabel}
+            </Badge>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className={`${input} min-w-0 flex-1`}
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+              disabled={status.connected}
             >
-              Device Connection
-            </h2>
-            <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
-              Select the COM port for the ARIS authenticator.
-            </p>
-          </div>
-          <Badge tone={status.connected ? "green" : "gray"} dot>
-            {connLabel}
-          </Badge>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className={`${input} min-w-0 flex-1`}
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-            disabled={status.connected}
-          >
-            <option value="">
-              {a.ports.length ? "Select a COM port…" : "No devices detected"}
-            </option>
-            {a.ports.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-                {p.product ? ` — ${p.product}` : ""}
+              <option value="">
+                {a.ports.length ? "Select a COM port…" : "No devices detected"}
               </option>
-            ))}
-          </select>
-          <button
-            className={btn}
-            onClick={() => void a.refreshPorts()}
-            disabled={status.connected}
-          >
-            Refresh
-          </button>
-        </div>
-
-        <div className="flex gap-2 mt-3">
-          <button
-            className={btnPrimary}
-            onClick={() => void a.connect(port)}
-            disabled={!port || status.connected || a.connecting}
-          >
-            {a.connecting ? "Connecting…" : "Connect"}
-          </button>
-          <button
-            className={btn}
-            onClick={() => void a.disconnect()}
-            disabled={!status.connected || running}
-          >
-            Disconnect
-          </button>
-        </div>
-
-        {/* Device details — compact */}
-        {dev && (
-          <div
-            className="mt-4 pt-4 grid grid-cols-2 gap-x-6 gap-y-1.5 border-t text-[12px]"
-            style={{ borderColor: "#f0f4f1" }}
-          >
-            <div>
-              <span style={{ color: "#8fa394" }}>Device</span>
-              <p className="font-medium truncate" style={{ color: "#111c14" }}>
-                {dev.deviceId}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "#8fa394" }}>Firmware</span>
-              <p className="font-medium" style={{ color: "#111c14" }}>
-                {dev.firmwareVersion ?? "—"}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "#8fa394" }}>Sensor</span>
-              <p className="font-medium" style={{ color: "#111c14" }}>
-                {info
-                  ? info.sensorConnected
-                    ? "Connected"
-                    : "Disconnected"
-                  : (dev.sensorStatus ?? "—")}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "#8fa394" }}>Slots free</span>
-              <p className="font-medium" style={{ color: "#111c14" }}>
-                {info?.slotsFree != null
-                  ? `${info.slotsFree} / ${info.capacity ?? "?"}`
-                  : "—"}
-              </p>
-            </div>
+              {a.ports.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}
+                  {p.product ? ` — ${p.product}` : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              className={btn}
+              onClick={() => void a.refreshPorts()}
+              disabled={status.connected}
+            >
+              Refresh
+            </button>
           </div>
-        )}
+
+          <div className="flex gap-2 mt-3">
+            <button
+              className={btnPrimary}
+              onClick={() => void a.connect(port)}
+              disabled={!port || status.connected || a.connecting}
+            >
+              {a.connecting ? "Connecting…" : "Connect"}
+            </button>
+            <button
+              className={btn}
+              onClick={() => void a.disconnect()}
+              disabled={!status.connected || running}
+            >
+              Disconnect
+            </button>
+          </div>
+
+          {/* Device details — compact */}
+          {dev && (
+            <div
+              className="mt-4 pt-4 grid grid-cols-2 gap-x-6 gap-y-1.5 border-t text-[12px]"
+              style={{ borderColor: "#f0f4f1" }}
+            >
+              <div>
+                <span style={{ color: "#8fa394" }}>Device</span>
+                <p
+                  className="font-medium truncate"
+                  style={{ color: "#111c14" }}
+                >
+                  {dev.deviceId}
+                </p>
+              </div>
+              <div>
+                <span style={{ color: "#8fa394" }}>Firmware</span>
+                <p className="font-medium" style={{ color: "#111c14" }}>
+                  {dev.firmwareVersion ?? "—"}
+                </p>
+              </div>
+              <div>
+                <span style={{ color: "#8fa394" }}>Sensor</span>
+                <p className="font-medium" style={{ color: "#111c14" }}>
+                  {info
+                    ? info.sensorConnected
+                      ? "Connected"
+                      : "Disconnected"
+                    : (dev.sensorStatus ?? "—")}
+                </p>
+              </div>
+              <div>
+                <span style={{ color: "#8fa394" }}>Slots free</span>
+                <p className="font-medium" style={{ color: "#111c14" }}>
+                  {info?.slotsFree != null
+                    ? `${info.slotsFree} / ${info.capacity ?? "?"}`
+                    : "—"}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Tutorial card ── */}
+        <HowToUse hasPorts={a.ports.length > 0} connected={status.connected} />
       </div>
     </div>
   );
