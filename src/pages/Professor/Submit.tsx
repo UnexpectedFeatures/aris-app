@@ -5,6 +5,7 @@ import { PageTitle } from "@/components/ui";
 import { useAuth } from "@/app/authContext";
 import { loadResource, saveResource } from "@/services/dataSource";
 import { supabase } from "@/services/supabase";
+import { fetchProgramCodes } from "@/services/programService";
 import {
   getPendingMeetTeachingLoadAutofills,
   clearPendingMeetTeachingLoadAutofills,
@@ -16,9 +17,104 @@ import {
 } from "@/services/meetAutofillService";
 import { fetchMeetingsFromDb } from "@/services/meetingService";
 
+const MANILA_TIME_ZONE = "Asia/Manila";
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+type ManilaDateParts = { year: number; month: number; day: number };
+type PeriodParts = { month: number; year: number; half?: "I" | "II" };
+
+function getManilaDateParts(value: string | Date): ManilaDateParts | null {
+  if (typeof value === "string") {
+    const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+    if (dateMatch) {
+      const [, yearText, monthText, dayText, suffix] = dateMatch;
+      const hasExplicitTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(suffix);
+      if (!suffix || !hasExplicitTimeZone) {
+        const parts = {
+          year: Number(yearText),
+          month: Number(monthText),
+          day: Number(dayText),
+        };
+        const check = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+        if (
+          check.getUTCFullYear() === parts.year &&
+          check.getUTCMonth() === parts.month - 1 &&
+          check.getUTCDate() === parts.day
+        ) {
+          return parts;
+        }
+        return null;
+      }
+      value = new Date(value);
+    } else {
+      value = new Date(value);
+    }
+  }
+
+  if (Number.isNaN(value.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: MANILA_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((item) => item.type === type)?.value);
+  return { year: part("year"), month: part("month"), day: part("day") };
+}
+
+function parsePeriodLabel(value: string, defaultYear?: number): PeriodParts | null {
+  const match = value.match(
+    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II))?(?:\s+\([^)]*\))?$/i,
+  );
+  if (!match) return null;
+  const month = MONTH_NAMES.findIndex(
+    (name) => name.toLowerCase() === match[1].toLowerCase(),
+  );
+  if (month < 0) return null;
+  const year = match[2]
+    ? Number(match[2])
+    : defaultYear ?? getManilaDateParts(new Date())?.year;
+  if (!year) return null;
+  return {
+    month: month + 1,
+    year,
+    half: match[3]?.toUpperCase() as "I" | "II" | undefined,
+  };
+}
+
+function toPeriodLabel(parts: PeriodParts, half: "I" | "II" = "I") {
+  return `${MONTH_NAMES[parts.month - 1]} ${parts.year} ${half}`;
+}
+
 function currentMonthName() {
-  const now = new Date();
-  return now.toLocaleString("en-PH", { month: "long", timeZone: "UTC" });
+  const now = getManilaDateParts(new Date());
+  if (!now) return "";
+  return toPeriodLabel(now, now.day <= 15 ? "I" : "II");
+}
+
+function parseSectionValue(value: string) {
+  const match = value.trim().match(/^(.+?)\s+(\d+)\s*-?\s*([A-D])$/i);
+  return match
+    ? {
+        program: match[1].trim().toUpperCase(),
+        year: match[2],
+        section: match[3].toUpperCase(),
+      }
+    : { program: "", year: "", section: "" };
 }
 
 export type DbCourse = {
@@ -52,26 +148,31 @@ export type CourseBlock = {
   rows: ClassScheduleRow[];
 };
 
+type DayTimeDraft = { start: string; end: string };
+
 type ClassRowDraft = {
   code: string;
+  program: string;
+  year: string;
   section: string;
   campus: string;
-  startTime: string;
-  endTime: string;
+  dayTimes: Record<string, DayTimeDraft>;
   units: string;
   days: string[];
-  customDays: string;
 };
 
 const emptyClassRow: ClassRowDraft = {
   code: "",
+  program: "",
+  year: "",
   section: "",
   campus: "CONGRESS",
-  startTime: "18:30",
-  endTime: "21:00",
+  dayTimes: {
+    MON: { start: "", end: "" },
+    THU: { start: "", end: "" },
+  },
   units: "5",
   days: ["MON", "THU"],
-  customDays: "",
 };
 
 const DAYS_OPTIONS = [
@@ -84,15 +185,106 @@ const DAYS_OPTIONS = [
   { label: "SUN", value: "SUN" },
 ];
 
+function sortScheduleDays(days: string[]) {
+  const dayOrder = DAYS_OPTIONS.map((day) => day.value);
+  return [...days].sort(
+    (a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b),
+  );
+}
+
 function formatTime(time: string) {
   if (!time) return "";
-  if (time.includes("AM") || time.includes("PM")) return time;
-  const [hourText, minute] = time.split(":");
-  const hour = Number(hourText);
-  if (!Number.isInteger(hour) || !minute) return time;
+  const match = time.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return "";
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "";
   const period = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 || 12;
-  return `${displayHour}:${minute} ${period}`;
+  return `${displayHour}:${match[2]} ${period}`;
+}
+
+function isValidTimeValue(value: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function formatMeetingClock(value: string) {
+  const match = value.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return "";
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute > 59) return "";
+  return formatTime(`${String(hour).padStart(2, "0")}:${match[2]}`);
+}
+
+function parseTimeRange(value: string) {
+  const firstRange = value.split("|")[0]?.trim() ?? "";
+  const match = firstRange.match(
+    /^(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[–-]\s*(\d{1,2}):(\d{2})\s*(AM|PM)?$/i,
+  );
+  if (!match) return { start: "", end: "" };
+
+  const [, startHourText, startMinute, startMeridiem, endHourText, endMinute, endMeridiem] =
+    match;
+  const endHour = Number(endHourText);
+  let startPeriod = startMeridiem?.toUpperCase() ?? endMeridiem?.toUpperCase();
+  const endPeriod = endMeridiem?.toUpperCase() ?? startMeridiem?.toUpperCase();
+  if (!startMeridiem && endPeriod) {
+    const isAcrossMeridiem = Number(startHourText) > endHour;
+    startPeriod = isAcrossMeridiem
+      ? endPeriod === "PM"
+        ? "AM"
+        : "PM"
+      : endPeriod;
+  }
+
+  const to24Hour = (hourText: string, minuteText: string, meridiem?: string) => {
+    let hour = Number(hourText);
+    if (meridiem) {
+      if (hour < 1 || hour > 12) return "";
+      hour = (hour % 12) + (meridiem === "PM" ? 12 : 0);
+    } else if (hour > 23) {
+      return "";
+    }
+    const minute = Number(minuteText);
+    if (minute > 59) return "";
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  };
+
+  return {
+    start: to24Hour(startHourText, startMinute, startPeriod),
+    end: to24Hour(endHourText, endMinute, endPeriod),
+  };
+}
+
+function isValidClassRowDraft(draft: ClassRowDraft) {
+  return (
+    Boolean(draft.program.trim()) &&
+    Boolean(draft.year) &&
+    Boolean(draft.section) &&
+    draft.days.length > 0 &&
+    draft.days.every((day) => {
+      const time = draft.dayTimes[day];
+      if (!time) return false;
+      return (
+        isValidTimeValue(time.start) &&
+        isValidTimeValue(time.end) &&
+        time.end > time.start
+      );
+    })
+  );
+}
+
+function normalizePeriodLabel(value: string, defaultYear?: number) {
+  const parts = parsePeriodLabel(value, defaultYear);
+  return parts ? toPeriodLabel(parts, parts.half ?? "I") : currentMonthName();
+}
+
+function getPeriodTextMatch(value: string): PeriodParts | null {
+  const match = value.match(
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?(?:\s+(I|II))?(?:\s+\(Whole Month\))?/i,
+  );
+  return match ? parsePeriodLabel(match[0]) : null;
 }
 
 function getHeldDates(value: string) {
@@ -223,18 +415,18 @@ export function parseTablesToCourseBlocks(
     const rows: ClassScheduleRow[] = Array.isArray(tbl.rows)
       ? tbl.rows.map((row: any, rIdx: number) => ({
           id: `row_rev_${idx}_${rIdx}_${Math.random().toString(36).substring(2, 6)}`,
-          code: String(row[0] || code || "CC 116"),
-          section: String(row[1] || "BSCS 3-B"),
+          code: String(row[0] || code || ""),
+          section: String(row[1] || ""),
           units: row[2] ?? 3,
           days: String(row[3] || "MON | THU"),
-          time: String(row[4] || "6:30 – 9:00 PM"),
+          time: String(row[4] || ""),
           campus: String(row[5] || "CONGRESS"),
         }))
       : [];
 
     return {
       id: `course_rev_${idx}_${Date.now()}`,
-      code: code || "CC 116",
+      code,
       title: title || fullTitle,
       units: rows[0]?.units ?? 3,
       datesHeld:
@@ -247,11 +439,11 @@ export function parseTablesToCourseBlocks(
           : [
               {
                 id: `row_rev_${idx}_default`,
-                code: code || "CC 116",
-                section: "BSCS 3-B",
+                code,
+                section: "",
                 units: 3,
                 days: "MON | THU",
-                time: "6:30 – 9:00 PM",
+                time: "",
                 campus: "CONGRESS",
               },
             ],
@@ -280,12 +472,19 @@ export default function ProfSubmit() {
       "Faculty Checker",
   );
 
-  const [period, setPeriod] = useState(
-    reviseSubmission?.period ||
-      reviseSubmission?.record?.period ||
-      currentMonthName(),
+  const [period, setPeriod] = useState(() =>
+    normalizePeriodLabel(
+      reviseSubmission?.period ||
+        reviseSubmission?.record?.period ||
+        currentMonthName(),
+      getManilaDateParts(
+        reviseSubmission?.created_at ||
+          reviseSubmission?.record?.created_at ||
+          "",
+      )?.year,
+    ),
   );
-  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
   const [monthsLoading, setMonthsLoading] = useState(true);
   const [facultyName, setFacultyName] = useState(
     reviseSubmission?.record?.facultyName || user.name.toUpperCase(),
@@ -301,8 +500,9 @@ export default function ProfSubmit() {
   const [availableCourses, setAvailableCourses] = useState<DbCourse[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false);
+  const [programCodes, setProgramCodes] = useState<string[]>([]);
 
-  // Discover months that have AR or MEET data so the period selector only shows valid options
+  // Build half-month options from all months represented by AR or MEET data.
   const loadAvailableMonths = async () => {
     try {
       const monthSet = new Set<string>();
@@ -312,14 +512,9 @@ export default function ProfSubmit() {
         const meetings = await fetchMeetingsFromDb(user?.email);
         meetings.forEach((m) => {
           if (m.meeting_date) {
-            const d = new Date(m.meeting_date);
-            if (!isNaN(d.getTime())) {
-              monthSet.add(
-                d.toLocaleString("en-PH", {
-                  month: "long",
-                  timeZone: "UTC",
-                }),
-              );
+            const parts = getManilaDateParts(m.meeting_date);
+            if (parts) {
+              monthSet.add(`${parts.year}-${parts.month}`);
             }
           }
         });
@@ -337,10 +532,16 @@ export default function ProfSubmit() {
         records.forEach((r: any) => {
           const p = r?.period || r?.record?.period;
           if (p && typeof p === "string") {
-            // Extract month name from period like "September 2026 (Whole Month)" or "September"
-            const monthMatch = p.match(/^([A-Za-z]+)/);
-            if (monthMatch) {
-              monthSet.add(monthMatch[1]);
+            const recordDate = getManilaDateParts(
+              r?.created_at ||
+                r?.record?.created_at ||
+                r?.submitted_at ||
+                r?.record?.submitted_at ||
+                "",
+            );
+            const parts = parsePeriodLabel(p, recordDate?.year);
+            if (parts) {
+              monthSet.add(`${parts.year}-${parts.month}`);
             }
           }
         });
@@ -348,20 +549,27 @@ export default function ProfSubmit() {
         /* ignore AR fetch errors */
       }
 
-      const months = Array.from(monthSet).sort();
-      setAvailableMonths(months);
+      const current = getManilaDateParts(new Date());
+      if (current) monthSet.add(`${current.year}-${current.month}`);
+      const periods = Array.from(monthSet)
+        .map((key) => key.split("-").map(Number))
+        .sort(([yearA, monthA], [yearB, monthB]) =>
+          yearA === yearB ? monthA - monthB : yearA - yearB,
+        )
+        .flatMap(([year, month]) => [
+          toPeriodLabel({ year, month }, "I"),
+          toPeriodLabel({ year, month }, "II"),
+        ]);
+      setAvailablePeriods(periods);
 
-      // Ensure the current period is valid; if not, default to first available or current month
-      const current = period;
-      if (!months.includes(current)) {
-        if (months.length > 0) {
-          setPeriod(months[0]);
-        } else {
-          setPeriod(currentMonthName());
-        }
-      }
+      const currentPeriod = normalizePeriodLabel(period);
+      setPeriod(
+        periods.includes(currentPeriod)
+          ? currentPeriod
+          : currentMonthName() || periods[0] || "",
+      );
     } catch {
-      setAvailableMonths([]);
+      setAvailablePeriods([]);
     } finally {
       setMonthsLoading(false);
     }
@@ -373,25 +581,25 @@ export default function ProfSubmit() {
 
   const lastAutoFilledMonth = useRef<string | null>(null);
 
-  // Auto-fill courses from Google Meet data when the period/month changes
+  // Auto-fill courses from Google Meet data when the selected half-month changes.
   useEffect(() => {
     if (monthsLoading || !period) return;
+    const selectedPeriod = parsePeriodLabel(period);
+    if (!selectedPeriod?.half) return;
 
     const runAutoFill = async () => {
       try {
         const meetings = await fetchMeetingsFromDb(user?.email);
 
-        // Filter meetings that fall within the selected month
-        const [monthName] = period.split(" ");
-        const targetMonth = monthName
-          ? new Date(`${monthName} 1, ${new Date().getFullYear()}`).getMonth()
-          : -1;
-
         const filtered = meetings.filter((m) => {
           if (!m.meeting_date) return false;
-          const d = new Date(m.meeting_date);
-          if (isNaN(d.getTime())) return false;
-          return d.getMonth() === targetMonth;
+          const date = getManilaDateParts(m.meeting_date);
+          if (!date) return false;
+          return (
+            date.year === selectedPeriod.year &&
+            date.month === selectedPeriod.month &&
+            (selectedPeriod.half === "I" ? date.day <= 15 : date.day >= 16)
+          );
         });
 
         if (filtered.length === 0) return;
@@ -399,15 +607,17 @@ export default function ProfSubmit() {
         // Convert SavedMeetingRecord[] → MeetTeachingLoadAutofill[]
         const autofillItems: MeetTeachingLoadAutofill[] = filtered.map((m) => {
           const parsed = parseCourseString(m.course ?? "", availableCourses);
-          const meetingDate = new Date(m.meeting_date);
-          const startTime = m.start_time ? new Date(`1970-01-01T${m.start_time}`) : null;
-          const endTime = m.end_time ? new Date(`1970-01-01T${m.end_time}`) : null;
-
+          const dateParts = getManilaDateParts(m.meeting_date);
+          const meetingDate = dateParts
+            ? new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day))
+            : new Date(Number.NaN);
+          const startTime = m.start_time ? formatMeetingClock(m.start_time) : "";
+          const endTime = m.end_time ? formatMeetingClock(m.end_time) : "";
           let meetingTime = "";
           if (startTime && endTime) {
-            meetingTime = `${formatTime12(startTime)} – ${formatTime12(endTime)}`;
+            meetingTime = `${startTime} – ${endTime}`;
           } else if (m.start_time) {
-            meetingTime = m.start_time;
+            meetingTime = startTime;
           }
 
           return {
@@ -473,7 +683,16 @@ export default function ProfSubmit() {
           "Faculty Checker",
       );
       if (reviseSubmission.period || reviseSubmission.record?.period) {
-        setPeriod(reviseSubmission.period || reviseSubmission.record?.period);
+        setPeriod(
+          normalizePeriodLabel(
+            reviseSubmission.period || reviseSubmission.record?.period,
+            getManilaDateParts(
+              reviseSubmission.created_at ||
+                reviseSubmission.record?.created_at ||
+                "",
+            )?.year,
+          ),
+        );
       }
       if (reviseSubmission.record?.facultyName) {
         setFacultyName(reviseSubmission.record.facultyName);
@@ -513,6 +732,7 @@ export default function ProfSubmit() {
   const [classModalCourseId, setClassModalCourseId] = useState<string | null>(
     null,
   );
+  const [pendingCourse, setPendingCourse] = useState<DbCourse | null>(null);
   const [classRowDraft, setClassRowDraft] =
     useState<ClassRowDraft>(emptyClassRow);
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
@@ -601,9 +821,8 @@ export default function ProfSubmit() {
           const rows = [...ex.rows];
           const isDummyRow =
             rows.length === 1 &&
-            rows[0].id === "row-1" &&
-            rows[0].section === "BSCS 3-B" &&
-            item.section !== "BSCS 3-B";
+            !rows[0].section.trim() &&
+            Boolean(item.section.trim());
 
           const rowIdx = isDummyRow
             ? 0
@@ -649,30 +868,6 @@ export default function ProfSubmit() {
             tasks: nextTasks,
             rows,
           };
-        } else {
-          // Brand new course block added from Google Meet
-          const newBlock: CourseBlock = {
-            id: `course_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            courseId: item.courseCode,
-            code: item.courseCode,
-            title: item.courseTitle,
-            units: item.units,
-            datesHeld: item.meetingDate,
-            topics: itemTopicUpper,
-            tasks: itemTaskFormatted,
-            rows: [
-              {
-                id: `row_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-                code: item.courseCode,
-                section: item.section,
-                units: item.units,
-                days: item.meetingDay,
-                time: item.meetingTime,
-                campus: item.campus || "CONGRESS",
-              },
-            ],
-          };
-          updated.push(newBlock);
         }
       }
 
@@ -682,8 +877,8 @@ export default function ProfSubmit() {
     const last = items[items.length - 1];
     setAutofillBanner({
       courseCode: last.courseCode,
-      message: `Autofilled from Google Meet`,
-      details: `${last.courseCode} (${last.courseTitle}) — Held on ${formatHeldDate(last.meetingDate)} at ${last.meetingTime}.`,
+      message: "Google Meet data synced",
+      details: `${last.courseCode} (${last.courseTitle}) — Held on ${formatHeldDate(last.meetingDate)} at ${last.meetingTime}. Courses not already in this report are not added automatically.`,
     });
 
     clearPendingMeetTeachingLoadAutofills(user?.email || user?.id);
@@ -859,15 +1054,6 @@ export default function ProfSubmit() {
       if (fetchedCourses.length === 0) {
         fetchedCourses = [
           {
-            id: "course-cc116",
-            code: "CC 116",
-            title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
-            units: 5,
-            department_name: "Computer Studies Department",
-            description:
-              "Advanced client-server architectures and modern web frameworks.",
-          },
-          {
             id: "course-cc105",
             code: "CC 105",
             title: "INFORMATION MANAGEMENT",
@@ -920,6 +1106,21 @@ export default function ProfSubmit() {
     };
   }, [user.email, user.id]);
 
+  useEffect(() => {
+    let isCancelled = false;
+    fetchProgramCodes()
+      .then((codes) => {
+        if (!isCancelled) setProgramCodes(codes);
+      })
+      .catch((err) => {
+        console.warn("Could not load program codes:", err);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
   /* ── 2. Filter courses user can add ("you can't add a course if you're not in it") ── */
   const unaddedCourses = useMemo(() => {
     return availableCourses.filter(
@@ -931,32 +1132,6 @@ export default function ProfSubmit() {
   }, [availableCourses, courses]);
 
   /* ── 3. Course actions ── */
-  const handleAddCourseFromDb = (course: DbCourse) => {
-    const newBlock: CourseBlock = {
-      id: `course_${Date.now()}`,
-      courseId: course.id,
-      code: course.code,
-      title: course.title,
-      units: course.units,
-      datesHeld: "",
-      topics: "",
-      tasks: "",
-      rows: [
-        {
-          id: `row_${Date.now()}`,
-          code: course.code,
-          section: "",
-          units: course.units,
-          days: "MON | THU",
-          time: "6:30 – 9:00 PM",
-          campus: "CONGRESS",
-        },
-      ],
-    };
-    setCourses((prev) => [...prev, newBlock]);
-    setIsAddCourseModalOpen(false);
-  };
-
   const handleDeleteCourse = (courseId: string) => {
     setCourses((prev) => prev.filter((c) => c.id !== courseId));
   };
@@ -975,22 +1150,38 @@ export default function ProfSubmit() {
   const openClassRowModal = (
     courseId: string,
     existingRow?: ClassScheduleRow,
+    newCourse?: DbCourse,
   ) => {
-    const targetCourse = courses.find((c) => c.id === courseId);
+    const targetCourse =
+      newCourse ?? courses.find((course) => course.id === courseId);
+    setPendingCourse(newCourse ?? null);
     if (existingRow) {
       setEditingRowId(existingRow.id);
       const dayArr = existingRow.days
         .split("|")
-        .map((d) => d.trim().toUpperCase());
+        .map((d) => d.trim().toUpperCase())
+        .filter(Boolean);
+      const timeParts = (existingRow.time || "")
+        .split("|")
+        .map((time) => time.trim());
+      const alignedTimeParts =
+        timeParts.length < dayArr.length
+          ? Array(dayArr.length).fill(timeParts[0] ?? "")
+          : timeParts;
+      const dayTimes = dayArr.reduce<Record<string, DayTimeDraft>>(
+        (times, day, index) => {
+          times[day] = parseTimeRange(alignedTimeParts[index] ?? "");
+          return times;
+        },
+        {},
+      );
       setClassRowDraft({
         code: existingRow.code || targetCourse?.code || "",
-        section: existingRow.section || "",
+        ...parseSectionValue(existingRow.section || ""),
         campus: existingRow.campus || "CONGRESS",
-        startTime: "18:30",
-        endTime: "21:00",
+        dayTimes,
         units: String(existingRow.units || targetCourse?.units || 3),
         days: dayArr,
-        customDays: existingRow.days,
       });
     } else {
       setEditingRowId(null);
@@ -999,64 +1190,90 @@ export default function ProfSubmit() {
         code: targetCourse?.code || "",
         units: String(targetCourse?.units || 5),
         campus: "CONGRESS",
+        dayTimes: Object.fromEntries(
+          emptyClassRow.days.map((day) => [day, { start: "", end: "" }]),
+        ),
       });
     }
     setClassModalCourseId(courseId);
   };
 
+  const handleAddCourseFromDb = (course: DbCourse) => {
+    setIsAddCourseModalOpen(false);
+    openClassRowModal(course.id, undefined, course);
+  };
+
   const closeClassRowModal = () => {
     setClassModalCourseId(null);
     setEditingRowId(null);
+    setPendingCourse(null);
   };
 
   const saveClassRow = () => {
     if (!classModalCourseId) return;
-    const daysStr =
-      classRowDraft.days.length > 0
-        ? classRowDraft.days.join(" | ")
-        : classRowDraft.customDays.trim() || "MON | THU";
+    if (!isValidClassRowDraft(classRowDraft)) return;
+    const sectionValue =
+      `${classRowDraft.program.trim()} ${classRowDraft.year}-${classRowDraft.section}`
+        .trim()
+        .toUpperCase();
+    const orderedDays = sortScheduleDays(classRowDraft.days);
+    const daysStr = orderedDays.join(" | ");
+    const timeStr = orderedDays
+      .map((day) => {
+        const times = classRowDraft.dayTimes[day] ?? {
+          start: "",
+          end: "",
+        };
+        return `${formatTime(times.start)} – ${formatTime(times.end)}`;
+      })
+      .join(" | ");
+    const rowCode = classRowDraft.code.trim().toUpperCase();
+    const rowUnits = Number(classRowDraft.units) || pendingCourse?.units || 3;
+    const newRow: ClassScheduleRow = {
+      id: `row_${Date.now()}`,
+      code: rowCode,
+      section: sectionValue,
+      units: rowUnits,
+      days: daysStr,
+      time: timeStr,
+      campus: classRowDraft.campus.trim().toUpperCase(),
+    };
 
-    const timeStartFormatted = formatTime(classRowDraft.startTime);
-    const timeEndFormatted = formatTime(classRowDraft.endTime);
-    const timeStr =
-      classRowDraft.days.length > 1
-        ? `${timeStartFormatted} – ${timeEndFormatted} | ${timeStartFormatted} – ${timeEndFormatted}`
-        : `${timeStartFormatted} – ${timeEndFormatted}`;
-
-    setCourses((prev) =>
-      prev.map((c) => {
-        if (c.id !== classModalCourseId) return c;
-        if (editingRowId) {
-          return {
-            ...c,
-            rows: c.rows.map((r) =>
-              r.id === editingRowId
-                ? {
-                    ...r,
-                    code: classRowDraft.code.trim().toUpperCase(),
-                    section: classRowDraft.section.trim().toUpperCase(),
-                    units: Number(classRowDraft.units) || c.units,
-                    days: daysStr,
-                    time: timeStr,
-                    campus: classRowDraft.campus.trim().toUpperCase(),
-                  }
-                : r,
-            ),
-          };
-        } else {
-          const newRow: ClassScheduleRow = {
-            id: `row_${Date.now()}`,
-            code: classRowDraft.code.trim().toUpperCase(),
-            section: classRowDraft.section.trim().toUpperCase(),
-            units: Number(classRowDraft.units) || c.units,
-            days: daysStr,
-            time: timeStr,
-            campus: classRowDraft.campus.trim().toUpperCase(),
-          };
-          return { ...c, rows: [...c.rows, newRow] };
-        }
-      }),
-    );
+    if (pendingCourse) {
+      const newBlock: CourseBlock = {
+        id: `course_${Date.now()}`,
+        courseId: pendingCourse.id,
+        code: pendingCourse.code,
+        title: pendingCourse.title,
+        units: pendingCourse.units,
+        datesHeld: "",
+        topics: "",
+        tasks: "",
+        rows: [newRow],
+      };
+      setCourses((prev) => [...prev, newBlock]);
+    } else {
+      setCourses((prev) =>
+        prev.map((course) => {
+          if (course.id !== classModalCourseId) return course;
+          if (editingRowId) {
+            return {
+              ...course,
+              rows: course.rows.map((row) =>
+                row.id === editingRowId
+                  ? {
+                      ...row,
+                      ...newRow,
+                      id: row.id,
+                    }
+                  : row,
+              ),
+            };
+          }
+          return { ...course, rows: [...course.rows, newRow] };
+        }),
+      );
+    }
     closeClassRowModal();
   };
 
@@ -1084,14 +1301,23 @@ export default function ProfSubmit() {
           const logs: unknown[] = isArr
             ? (parsed as unknown[])
             : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
-          // Check if any existing entry has the same period label
+          const selected = parsePeriodLabel(periodLabel);
           const matchingEntry = (logs as Array<{
             action: string;
             target: string;
           }>).find(
-            (entry) =>
-              entry?.action?.includes(periodLabel) ||
-              entry?.target?.includes(periodLabel)
+            (entry) => {
+              const text = `${entry?.action ?? ""} ${entry?.target ?? ""}`;
+              if (text.includes(periodLabel)) return true;
+              const existing = getPeriodTextMatch(text);
+              return Boolean(
+                selected &&
+                  existing &&
+                  existing.month === selected.month &&
+                  existing.year === selected.year &&
+                  (!existing.half || existing.half === selected.half),
+              );
+            },
           );
           if (matchingEntry) {
             return true;
@@ -1121,7 +1347,9 @@ export default function ProfSubmit() {
     const kind = "AR";
     const reference =
       isRevision && revisionRef ? revisionRef : `${kind}-${Date.now()}`;
-    const now = new Date().toLocaleString();
+    const now = new Date().toLocaleString("en-PH", {
+      timeZone: MANILA_TIME_ZONE,
+    });
 
     const combinedTopics = courses
       .map((c) => (c.topics ? `${c.code}: ${c.topics}` : ""))
@@ -1456,10 +1684,10 @@ export default function ProfSubmit() {
                 >
                   {monthsLoading ? (
                     <option disabled>Loading months…</option>
-                  ) : availableMonths.length === 0 ? (
+                  ) : availablePeriods.length === 0 ? (
                     <option disabled>No AR or MEET data found</option>
                   ) : (
-                    availableMonths.map((m) => (
+                    availablePeriods.map((m) => (
                       <option key={m} value={m}>
                         {m}
                       </option>
@@ -2367,13 +2595,56 @@ export default function ProfSubmit() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
-                  Program, Year &amp; Section
-                  <input
-                    autoFocus
+                  Program
+                  <select
                     required
-                    placeholder="e.g. BSCS 3-B"
+                    autoFocus
+                    value={classRowDraft.program}
+                    onChange={(e) =>
+                      setClassRowDraft({
+                        ...classRowDraft,
+                        program: e.target.value,
+                      })
+                    }
+                    className="mt-1 block h-9 w-full rounded-xl border px-2 text-[12px] font-medium uppercase border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668] bg-white"
+                  >
+                    <option value="">Select</option>
+                    {programCodes.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
+                  Year
+                  <select
+                    required
+                    value={classRowDraft.year}
+                    onChange={(e) =>
+                      setClassRowDraft({
+                        ...classRowDraft,
+                        year: e.target.value,
+                      })
+                    }
+                    className="mt-1 block h-9 w-full rounded-xl border px-2 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668] bg-white"
+                  >
+                    <option value="">Select</option>
+                    {["1", "2", "3", "4"].map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
+                  Section
+                  <select
+                    required
                     value={classRowDraft.section}
                     onChange={(e) =>
                       setClassRowDraft({
@@ -2381,10 +2652,19 @@ export default function ProfSubmit() {
                         section: e.target.value,
                       })
                     }
-                    className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium uppercase border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
-                  />
+                    className="mt-1 block h-9 w-full rounded-xl border px-2 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668] bg-white"
+                  >
+                    <option value="">Select</option>
+                    {["A", "B", "C", "D"].map((section) => (
+                      <option key={section} value={section}>
+                        {section}
+                      </option>
+                    ))}
+                  </select>
                 </label>
+              </div>
 
+              <div className="grid grid-cols-2 gap-3">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
                   Campus
                   <select
@@ -2420,9 +2700,16 @@ export default function ProfSubmit() {
                           const nextDays = isSelected
                             ? classRowDraft.days.filter((d) => d !== day.value)
                             : [...classRowDraft.days, day.value];
+                          const nextDayTimes = { ...classRowDraft.dayTimes };
+                          if (isSelected) {
+                            delete nextDayTimes[day.value];
+                          } else {
+                            nextDayTimes[day.value] = { start: "", end: "" };
+                          }
                           setClassRowDraft({
                             ...classRowDraft,
                             days: nextDays,
+                            dayTimes: nextDayTimes,
                           });
                         }}
                         className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all ${
@@ -2438,37 +2725,59 @@ export default function ProfSubmit() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
-                  Time Start
-                  <input
-                    required
-                    type="time"
-                    value={classRowDraft.startTime}
-                    onChange={(e) =>
-                      setClassRowDraft({
-                        ...classRowDraft,
-                        startTime: e.target.value,
-                      })
-                    }
-                    className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
-                  />
-                </label>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
-                  Time End
-                  <input
-                    required
-                    type="time"
-                    value={classRowDraft.endTime}
-                    onChange={(e) =>
-                      setClassRowDraft({
-                        ...classRowDraft,
-                        endTime: e.target.value,
-                      })
-                    }
-                    className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
-                  />
-                </label>
+              <div className="space-y-3">
+                {sortScheduleDays(classRowDraft.days).map((day) => {
+                  const times = classRowDraft.dayTimes[day] ?? {
+                    start: "",
+                    end: "",
+                  };
+                  return (
+                    <div key={day} className="grid grid-cols-2 gap-3">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
+                        {day} — Time Start
+                        <input
+                          required
+                          type="time"
+                          value={times.start}
+                          onChange={(e) =>
+                            setClassRowDraft({
+                              ...classRowDraft,
+                              dayTimes: {
+                                ...classRowDraft.dayTimes,
+                                [day]: {
+                                  ...times,
+                                  start: e.target.value,
+                                },
+                              },
+                            })
+                          }
+                          className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
+                        />
+                      </label>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-[#5a6b5e]">
+                        {day} — Time End
+                        <input
+                          required
+                          type="time"
+                          value={times.end}
+                          onChange={(e) =>
+                            setClassRowDraft({
+                              ...classRowDraft,
+                              dayTimes: {
+                                ...classRowDraft.dayTimes,
+                                [day]: {
+                                  ...times,
+                                  end: e.target.value,
+                                },
+                              },
+                            })
+                          }
+                          className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -2483,7 +2792,7 @@ export default function ProfSubmit() {
               <button
                 type="button"
                 onClick={saveClassRow}
-                disabled={!classRowDraft.section.trim()}
+                disabled={!isValidClassRowDraft(classRowDraft)}
                 className="rounded-xl px-5 py-2 text-[12px] font-bold text-white transition-opacity disabled:opacity-50"
                 style={{ background: "#009668" }}
               >
