@@ -88,7 +88,10 @@ function EnrollSteps({
               >
                 {failed ? "!" : done ? "✓" : i + 1}
               </span>
-              <span className="whitespace-nowrap text-[11px]" style={{ color: "#8fa394" }}>
+              <span
+                className="whitespace-nowrap text-[11px]"
+                style={{ color: "#8fa394" }}
+              >
                 {label}
               </span>
             </div>
@@ -123,9 +126,16 @@ function Section({
     <section className={card}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>{title}</h2>
+          <h2
+            className="text-[15px] font-semibold"
+            style={{ color: "#111c14" }}
+          >
+            {title}
+          </h2>
           {description && (
-            <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>{description}</p>
+            <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>
+              {description}
+            </p>
           )}
         </div>
         {action}
@@ -138,8 +148,15 @@ function Section({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl bg-[#F4F6F5] p-3">
-      <p className="text-[11.5px]" style={{ color: "#8fa394" }}>{label}</p>
-      <p className="mt-0.5 truncate text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>{value}</p>
+      <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
+        {label}
+      </p>
+      <p
+        className="mt-0.5 truncate text-[22px] font-bold tracking-tight"
+        style={{ color: "#111c14" }}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -154,44 +171,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 // ─── User (professor) view ────────────────────────────────────────────────────
-
-function FingerprintIcon({ phase }: { phase: "idle" | "running" | "done" | "failed" }) {
-  const color =
-    phase === "running"
-      ? "#2F7043"
-      : phase === "done"
-        ? "#047857"
-        : phase === "failed"
-          ? "#C0392B"
-          : "#b6c3ba";
-
-  return (
-    <svg
-      viewBox="0 0 80 80"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="w-20 h-20 transition-all duration-500"
-      aria-hidden="true"
-    >
-      <circle cx="40" cy="40" r="38" stroke={color} strokeWidth="2" opacity="0.15" />
-      <circle cx="40" cy="40" r="30" stroke={color} strokeWidth="1.5" opacity="0.2" />
-      {/* Fingerprint ridges */}
-      <path d="M40 22a18 18 0 0 1 18 18" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.4" />
-      <path d="M40 26a14 14 0 0 1 14 14" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.55" />
-      <path d="M40 30a10 10 0 0 1 10 10" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
-      <path d="M40 34a6 6 0 0 1 6 6" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.85" />
-      <path d="M40 22a18 18 0 0 0-14 8.5" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.4" />
-      <path d="M40 26a14 14 0 0 0-10 6" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.55" />
-      <path d="M40 30a10 10 0 0 0-6 4" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
-      {/* Center dot */}
-      <circle cx="40" cy="40" r="3" fill={color} opacity="0.9" />
-      {/* Bottom ridges */}
-      <path d="M26 46a14 14 0 0 0 28 0" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.4" />
-      <path d="M30 50a10 10 0 0 0 20 0" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.55" />
-      <path d="M34 54a6 6 0 0 0 12 0" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
-    </svg>
-  );
-}
 
 function ProfessorAuthenticatorPage() {
   const a = useAuthenticator();
@@ -223,7 +202,10 @@ function ProfessorAuthenticatorPage() {
     <div className="pb-8 max-w-2xl mx-auto">
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>
+        <h1
+          className="text-[22px] font-bold tracking-tight"
+          style={{ color: "#111c14" }}
+        >
           Fingerprint Authenticator
         </h1>
         <p className="mt-1 text-[13.5px]" style={{ color: "#8fa394" }}>
@@ -244,11 +226,16 @@ function ProfessorAuthenticatorPage() {
       {/* ── Device connection card ── */}
       <div
         className="rounded-3xl bg-white p-5 shadow-[0_1px_2px_rgba(16,32,20,0.05)]"
-        style={{ border: status.connected ? "1px solid #d7ebdd" : "1px solid #e8ecea" }}
+        style={{
+          border: status.connected ? "1px solid #d7ebdd" : "1px solid #e8ecea",
+        }}
       >
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-[14px] font-semibold" style={{ color: "#111c14" }}>
+            <h2
+              className="text-[14px] font-semibold"
+              style={{ color: "#111c14" }}
+            >
               Device Connection
             </h2>
             <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
@@ -311,11 +298,15 @@ function ProfessorAuthenticatorPage() {
           >
             <div>
               <span style={{ color: "#8fa394" }}>Device</span>
-              <p className="font-medium truncate" style={{ color: "#111c14" }}>{dev.deviceId}</p>
+              <p className="font-medium truncate" style={{ color: "#111c14" }}>
+                {dev.deviceId}
+              </p>
             </div>
             <div>
               <span style={{ color: "#8fa394" }}>Firmware</span>
-              <p className="font-medium" style={{ color: "#111c14" }}>{dev.firmwareVersion ?? "—"}</p>
+              <p className="font-medium" style={{ color: "#111c14" }}>
+                {dev.firmwareVersion ?? "—"}
+              </p>
             </div>
             <div>
               <span style={{ color: "#8fa394" }}>Sensor</span>
@@ -330,7 +321,9 @@ function ProfessorAuthenticatorPage() {
             <div>
               <span style={{ color: "#8fa394" }}>Slots free</span>
               <p className="font-medium" style={{ color: "#111c14" }}>
-                {info?.slotsFree != null ? `${info.slotsFree} / ${info.capacity ?? "?"}` : "—"}
+                {info?.slotsFree != null
+                  ? `${info.slotsFree} / ${info.capacity ?? "?"}`
+                  : "—"}
               </p>
             </div>
           </div>
@@ -420,7 +413,10 @@ function AdminAuthenticatorPage() {
       <div className="grid gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>
+            <h1
+              className="text-[22px] font-bold tracking-tight"
+              style={{ color: "#111c14" }}
+            >
               Authenticator
             </h1>
             <p className="mt-0.5 text-[13.5px]" style={{ color: "#8fa394" }}>
@@ -703,11 +699,7 @@ function AdminAuthenticatorPage() {
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
             />
-            <button
-              type="submit"
-              className={btn}
-              disabled={!tokenInput.trim()}
-            >
+            <button type="submit" className={btn} disabled={!tokenInput.trim()}>
               Save token
             </button>
             <button
