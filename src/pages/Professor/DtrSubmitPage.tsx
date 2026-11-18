@@ -14,6 +14,15 @@ import { saveResource } from "@/services/dataSource";
 
 type DtrPeriod = "first-half" | "second-half" | "whole-month";
 
+type PunchRecord = {
+  punch_time: string;
+  punch_state_display?: string | null;
+  area_alias?: string | null;
+};
+
+const FETCH_ALL_PAGE_SIZE = 2000;
+const FETCH_ALL_MAX_PAGES = 50;
+
 function currentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -52,24 +61,45 @@ export function getDtrDateRange(monthValue: string, period: DtrPeriod) {
     `${match[1]}-${monthText}-${String(day).padStart(2, "0")}`;
 
   const startDay =
-    period === "whole-month"
-      ? 1
-      : period === "first-half"
-      ? 1
-      : 16;
+    period === "whole-month" ? 1 : period === "first-half" ? 1 : 16;
   const endDay =
     period === "whole-month"
       ? daysInMonth
       : period === "first-half"
-      ? 15
-      : daysInMonth;
+        ? 15
+        : daysInMonth;
 
   const periodLabel =
     period === "whole-month"
       ? `${monthName} ${year} (Whole Month)`
       : `${monthName} ${year} (${period === "first-half" ? "1–15" : "16–end"})`;
 
-  return { startDate: formatDate(startDay), endDate: formatDate(endDay), periodLabel };
+  return {
+    startDate: formatDate(startDay),
+    endDate: formatDate(endDay),
+    periodLabel,
+  };
+}
+
+// Fetches every page of punches for a range (the store only holds the current page)
+async function fetchAllPunches(
+  startDate: string,
+  endDate: string,
+): Promise<PunchRecord[]> {
+  const all: PunchRecord[] = [];
+  for (let page = 1; page <= FETCH_ALL_MAX_PAGES; page++) {
+    const body = await fetchBiometricsTransactions({
+      page,
+      limit: FETCH_ALL_PAGE_SIZE,
+      emp_code: "",
+      start_date: startDate,
+      end_date: endDate,
+    });
+    const batch = (body?.data ?? []) as PunchRecord[];
+    all.push(...batch);
+    if (batch.length < FETCH_ALL_PAGE_SIZE) break;
+  }
+  return all;
 }
 
 const fieldClass =
@@ -195,15 +225,17 @@ export default function DtrSubmitPage() {
           const isArr = Array.isArray(parsed);
           const logs: unknown[] = isArr
             ? (parsed as unknown[])
-            : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
+            : (((parsed as Record<string, unknown>)?.logs as unknown[]) ?? []);
           // Check if any existing entry has the same period label
-          const matchingEntry = (logs as Array<{
-            action: string;
-            target: string;
-          }>).find(
+          const matchingEntry = (
+            logs as Array<{
+              action: string;
+              target: string;
+            }>
+          ).find(
             (entry) =>
               entry?.action?.includes(periodLabel) ||
-              entry?.target?.includes(periodLabel)
+              entry?.target?.includes(periodLabel),
           );
           if (matchingEntry) {
             return true;
@@ -234,6 +266,11 @@ export default function DtrSubmitPage() {
 
     // If we get here, either no duplicate or user confirmed the modal
     try {
+      // Pull every page for the period, not just the one currently displayed
+      const punches = await fetchAllPunches(startDate, endDate);
+      const punchCount = punches.length;
+      const punchCountLabel = `${punchCount} punch record${punchCount === 1 ? "" : "s"}`;
+
       const reference = `DTR-${Date.now()}`;
       const now = new Date().toLocaleString();
       const facultyName = user?.name?.toUpperCase() ?? "Faculty";
@@ -241,15 +278,20 @@ export default function DtrSubmitPage() {
       const college = "COLLEGE OF LIBERAL ARTS AND SCIENCES";
 
       // Build DTR rows for the record payload (matches backend audit format)
-      const dtrRows = s.records.map((rec) => {
+      const dtrRows = punches.map((rec) => {
         const { date, time } = formatPunch(rec.punch_time);
-        return [date, time, rec.punch_state_display ?? "—", rec.area_alias ?? "—"];
+        return [
+          date,
+          time,
+          rec.punch_state_display ?? "—",
+          rec.area_alias ?? "—",
+        ];
       });
 
       const tables = [
         dtrTable(
           `DTR Log Summary — ${startDate} – ${endDate}`,
-          `${s.records.length} punch record${s.records.length === 1 ? "" : "s"} logged`,
+          `${punchCountLabel} logged`,
           dtrRows,
         ),
       ];
@@ -260,7 +302,7 @@ export default function DtrSubmitPage() {
         is_revision: false,
         type: "DTR" as const,
         period: periodLabel,
-        units: `${s.records.length} punch record${s.records.length === 1 ? "" : "s"}`,
+        units: punchCountLabel,
         submitted: now,
         status: "Pending" as const,
         stage: "Checker",
@@ -294,59 +336,60 @@ export default function DtrSubmitPage() {
       };
 
       // Sync local demo audit store so History immediately shows the new submission
-  try {
-    const auditKeys = [
-      "aris:demo:/audit",
-      `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
-    ];
-    const initials = facultyName
-      .split(" ")
-      .map((w: string) => w[0] ?? "")
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-    const newAuditEntry = {
-      id: reference,
-      actor: facultyName,
-      init: initials,
-      type: "DTR",
-      action: `DTR submitted · ${periodLabel}`,
-      target: `${periodLabel} · ${s.records.length} punch records`,
-      time: now,
-      result: "Pending",
-      stage: "Checker",
-      stage_role: "Checker",
-      stage_key: "DTR-AP-STG-1",
-      approval_stage: "DTR-AP-STG-1",
-      stage_order: 1,
-      record: record.record,
-    };
-    for (const k of auditKeys) {
       try {
-        const stored = localStorage.getItem(k);
-        if (stored) {
-          const parsed = JSON.parse(stored) as unknown;
-          const isArr = Array.isArray(parsed);
-          const logs: unknown[] = isArr
-            ? (parsed as unknown[])
-            : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
-          const next = [newAuditEntry, ...logs];
-          localStorage.setItem(
-            k,
-            JSON.stringify(
-              isArr ? next : { ...(parsed as object), logs: next },
-            ),
-          );
-        } else {
-          localStorage.setItem(k, JSON.stringify([newAuditEntry]));
+        const auditKeys = [
+          "aris:demo:/audit",
+          `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
+        ];
+        const initials = facultyName
+          .split(" ")
+          .map((w: string) => w[0] ?? "")
+          .join("")
+          .slice(0, 2)
+          .toUpperCase();
+        const newAuditEntry = {
+          id: reference,
+          actor: facultyName,
+          init: initials,
+          type: "DTR",
+          action: `DTR submitted · ${periodLabel}`,
+          target: `${periodLabel} · ${punchCountLabel}`,
+          time: now,
+          result: "Pending",
+          stage: "Checker",
+          stage_role: "Checker",
+          stage_key: "DTR-AP-STG-1",
+          approval_stage: "DTR-AP-STG-1",
+          stage_order: 1,
+          record: record.record,
+        };
+        for (const k of auditKeys) {
+          try {
+            const stored = localStorage.getItem(k);
+            if (stored) {
+              const parsed = JSON.parse(stored) as unknown;
+              const isArr = Array.isArray(parsed);
+              const logs: unknown[] = isArr
+                ? (parsed as unknown[])
+                : (((parsed as Record<string, unknown>)?.logs as unknown[]) ??
+                  []);
+              const next = [newAuditEntry, ...logs];
+              localStorage.setItem(
+                k,
+                JSON.stringify(
+                  isArr ? next : { ...(parsed as object), logs: next },
+                ),
+              );
+            } else {
+              localStorage.setItem(k, JSON.stringify([newAuditEntry]));
+            }
+          } catch {
+            /* ignore per-key errors */
+          }
         }
-      } catch {
-        /* ignore per-key errors */
+      } catch (syncErr) {
+        console.warn("Could not sync local audit store:", syncErr);
       }
-    }
-  } catch (syncErr) {
-    console.warn("Could not sync local audit store:", syncErr);
-  }
 
       // 1. Try the dedicated DTR endpoint first
       try {
@@ -385,15 +428,13 @@ export default function DtrSubmitPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void handleSubmit();
+          void fetchRange();
         }}
         className="mb-6 rounded-2xl border border-[#e8eeea] bg-white p-5 shadow-sm"
         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
       >
         {showDuplicateModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/40"
-          >
+          <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/40">
             <div
               className={`bg-white rounded-xl p-6 max-w-md w-full shadow-2xl transition-all duration-300 ease-out ${modalAnimate ? "scale-100 opacity-100" : "scale-95 opacity-0"}`}
               style={{}}
@@ -402,7 +443,8 @@ export default function DtrSubmitPage() {
                 DTR Already Submitted
               </h3>
               <p className="text-[#5a6b5e] mb-6">
-                You have already submitted a DTR for {duplicatePeriod}. Would you like to submit again for this month?
+                You have already submitted a DTR for {duplicatePeriod}. Would
+                you like to submit again for this month?
               </p>
               <div className="flex gap-3">
                 <button
@@ -417,7 +459,10 @@ export default function DtrSubmitPage() {
                   type="button"
                   onClick={handleDuplicateModalConfirm}
                   className="flex-1 rounded-xl px-5 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
-                  style={{ background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)" }}
+                  style={{
+                    background:
+                      "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
+                  }}
                 >
                   Submit Anyway
                 </button>
@@ -443,10 +488,13 @@ export default function DtrSubmitPage() {
               ) : (
                 availableMonths.map((m) => {
                   const [yr, mo] = m.split("-");
-                  const monthName = new Date(`${yr}-${mo}-01`).toLocaleString("en-PH", {
-                    month: "long",
-                    timeZone: "UTC",
-                  });
+                  const monthName = new Date(`${yr}-${mo}-01`).toLocaleString(
+                    "en-PH",
+                    {
+                      month: "long",
+                      timeZone: "UTC",
+                    },
+                  );
                   return (
                     <option key={m} value={m}>
                       {monthName} {yr}
@@ -471,7 +519,7 @@ export default function DtrSubmitPage() {
           <button
             type="submit"
             disabled={loading}
-            className="h-10 rounded-xl px-5 text-[13px] font-bold text-white transition-opacity disabled:opacity-60"
+            className="h-10 w-full rounded-xl px-5 text-[13px] font-bold text-white transition-opacity disabled:opacity-60 sm:w-28"
             style={{ background: "#009668" }}
           >
             {loading ? "Loading…" : "Refresh"}
@@ -519,8 +567,16 @@ export default function DtrSubmitPage() {
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-[13px]">
+        <div className="min-h-[320px] overflow-x-auto">
+          <table className="w-full min-w-[640px] table-fixed text-left text-[13px]">
+            <colgroup>
+              <col className="w-[16%]" />
+              <col className="w-[14%]" />
+              <col className="w-[18%]" />
+              <col className="w-[20%]" />
+              <col className="w-[16%]" />
+              <col className="w-[16%]" />
+            </colgroup>
             <thead>
               <tr className="text-[11px] font-bold uppercase tracking-wide text-[#718076]">
                 <th className="py-2 pr-4">Date</th>
@@ -532,30 +588,33 @@ export default function DtrSubmitPage() {
               </tr>
             </thead>
             <tbody>
-              {records.map((record) => {
-                const { date, time } = formatPunch(record.punch_time);
-                return (
-                  <tr
-                    key={record.id}
-                    className="border-t border-[#edf1ee] text-[#26352a]"
-                  >
-                    <td className="py-2.5 pr-4">{date}</td>
-                    <td className="py-2.5 pr-4">{time}</td>
-                    <td className="py-2.5 pr-4">
-                      <span className="rounded-full bg-[#f0f4f1] px-2 py-1 text-[11px] text-[#5a6b5e]">
-                        {record.verify_type_display}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pr-4">{record.area_alias ?? "—"}</td>
-                    <td className="py-2.5 pr-4">
-                      {record.punch_state_display ?? "—"}
-                    </td>
-                    <td className="py-2.5 text-[12px] text-[#718076]">
-                      {record.terminal_sn}
-                    </td>
-                  </tr>
-                );
-              })}
+              {!loading &&
+                records.map((record) => {
+                  const { date, time } = formatPunch(record.punch_time);
+                  return (
+                    <tr
+                      key={record.id}
+                      className="border-t border-[#edf1ee] text-[#26352a]"
+                    >
+                      <td className="truncate py-2.5 pr-4">{date}</td>
+                      <td className="truncate py-2.5 pr-4">{time}</td>
+                      <td className="py-2.5 pr-4">
+                        <span className="rounded-full bg-[#f0f4f1] px-2 py-1 text-[11px] text-[#5a6b5e]">
+                          {record.verify_type_display}
+                        </span>
+                      </td>
+                      <td className="truncate py-2.5 pr-4">
+                        {record.area_alias ?? "—"}
+                      </td>
+                      <td className="truncate py-2.5 pr-4">
+                        {record.punch_state_display ?? "—"}
+                      </td>
+                      <td className="truncate py-2.5 text-[12px] text-[#718076]">
+                        {record.terminal_sn}
+                      </td>
+                    </tr>
+                  );
+                })}
               {(loading || !loaded) && (
                 <tr>
                   <td
@@ -621,8 +680,14 @@ export default function DtrSubmitPage() {
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!loaded || loading || isSubmitting || !!error || records.length === 0}
-            className="rounded-xl px-6 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={
+              !loaded ||
+              loading ||
+              isSubmitting ||
+              !!error ||
+              records.length === 0
+            }
+            className="min-w-[130px] rounded-xl px-6 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
             }}

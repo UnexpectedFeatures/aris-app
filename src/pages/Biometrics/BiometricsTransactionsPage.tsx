@@ -49,7 +49,7 @@ export default function BiometricsTransactionsPage() {
           </button>
         </div>
 
-        <section className={card}>
+        <section className={`${card}`}>
           <form
             className="flex flex-wrap items-end gap-3"
             onSubmit={(e) => {
@@ -79,7 +79,18 @@ export default function BiometricsTransactionsPage() {
                 }
               />
             </label>
-            <button type="submit" className={btnPrimary} disabled={s.loading}>
+            <button
+              type="submit"
+              disabled={
+                s.loading ||
+                !draft.start_date ||
+                !draft.end_date ||
+                !Number.isFinite(Date.parse(draft.start_date)) ||
+                !Number.isFinite(Date.parse(draft.end_date)) ||
+                new Date(draft.end_date) < new Date(draft.start_date)
+              }
+              className={btnPrimary}
+            >
               Apply
             </button>
             {hasFilters && (

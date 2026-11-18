@@ -147,7 +147,7 @@ export const profAuthenticatorNav: NavItem[] = [
   // },
   {
     path: "/prof/transactions",
-    label: "Transactions",
+    label: "DTR Logs",
     icon: icon(
       <>
         <path d="M4 2v20l2-1.5L8 22l2-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2 1.5V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2Z" />
