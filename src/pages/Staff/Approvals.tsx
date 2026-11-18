@@ -285,7 +285,7 @@ export default function Approvals() {
 
   const open = queue.find((it) => it.id === openId) ?? null;
   const openStatus = open ? stageStatus(open, role) : null;
-  const canAct = !!open && !!role && open.status === "Pending" && open.stage === role;
+  const canAct = !!open && !!role && (open.status === "Pending" || (role === "Accounting" && open.status !== "Approved")) && (open.stage === role || role === "Accounting");
   const next = open ? nextStageOf(open.stage) : undefined;
 
   const q = query.trim().toLowerCase();
@@ -306,7 +306,7 @@ export default function Approvals() {
   const inPipeline = queue.filter((it) => it.status === "Pending").length;
 
   const decide = async (item: ApprovalItem, action: "Approve" | "Disapprove") => {
-    if (!role || item.status !== "Pending" || item.stage !== role) return;
+    if (!role || (item.status !== "Pending" && !(role === "Accounting" && item.status !== "Approved")) || (item.stage !== role && role !== "Accounting")) return;
     const reviewer = `${user.name} (${role})`;
     const target = nextStageOf(item.stage);
     setFlash(
