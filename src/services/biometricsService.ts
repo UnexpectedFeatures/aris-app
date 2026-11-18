@@ -1,6 +1,8 @@
 import { apiClient } from "@/services/apiClient";
 
 interface EnrollPayload {
+  id?: string;
+  user_id: string;
   authenticator_tag: string; // device deviceId, e.g. auth-00001
   biometrics_fingerprint: string; // fingerprintId/slot from the enroll response
 }
@@ -50,7 +52,7 @@ export async function getUserId(): Promise<string> {
 
 // Enrolls the fingerprint slot and registers the authenticator
 export async function enrollFingerprint(data: EnrollPayload) {
-  const user_id = await getUserId();
+  const user_id = data.user_id ?? (await getUserId());
   const response = await apiClient.post("/biometrics/enroll", {
     ...data,
     user_id,
@@ -58,7 +60,6 @@ export async function enrollFingerprint(data: EnrollPayload) {
   assertOk(response.data);
   return response.data;
 }
-
 // Server decides time in / time out
 export async function punch(data: PunchPayload) {
   const user_id = await getUserId();

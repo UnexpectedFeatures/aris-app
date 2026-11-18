@@ -45,6 +45,8 @@ export function useAuthenticator() {
   const [sync, setSync] = useState<SyncState>(SYNC_IDLE);
   const [error, setError] = useState<BridgeError | null>(null);
   const enrollingRef = useRef(false);
+  // The professor/staff selected for the current enrollment (not the signed-in admin).
+  const enrollUserIdRef = useRef<string | null>(null);
 
   const refreshPorts = useCallback(async () => {
     try {
@@ -150,11 +152,17 @@ export function useAuthenticator() {
     }
   }, []);
 
-  // Saves the enrolled fingerprint to ARIS for the signed-in account.
+  // Saves the enrolled fingerprint to ARIS for the SELECTED user (not the signed-in admin).
   const saveEnrollment = useCallback(async (result: EnrollResult) => {
+    const userId = enrollUserIdRef.current;
+    if (!userId) {
+      setSync({ status: "failed", error: "No user selected for enrollment." });
+      return;
+    }
     setSync({ status: "saving", error: null });
     try {
       await enrollFingerprint({
+        user_id: userId,
         authenticator_tag: result.deviceId,
         biometrics_fingerprint: String(result.fingerprintId),
       });
@@ -165,14 +173,22 @@ export function useAuthenticator() {
   }, []);
 
   const startEnrollment = useCallback(
-    async (slot: number, timeoutMs: number) => {
+    async (slot: number, timeoutMs: number, userId: string) => {
       setError(null);
       setSync(SYNC_IDLE);
       setEnroll({ phase: "starting" });
-      // Pre-flight with FRESH device data; the firmware stays the final authority.
-      const t = await refreshInfo();
       const fail = (err: BridgeError) =>
         setEnroll({ phase: "failed", error: err });
+      if (!userId)
+        return fail({
+          code: "no_user_selected",
+          message: "Select a user to enroll",
+          retryable: false,
+        });
+      enrollUserIdRef.current = userId;
+
+      // Pre-flight with FRESH device data; the firmware stays the final authority.
+      const t = await refreshInfo();
       if (!status.connected || !status.device)
         return fail({
           code: "not_connected",

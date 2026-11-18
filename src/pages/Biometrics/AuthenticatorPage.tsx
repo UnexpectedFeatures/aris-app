@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState, type ReactNode } from "react";
 import { authenticatorApi as api } from "../../services/rustMiddleware";
 import { blockedText, useAuthenticator } from "../../services/useAuthenticator";
@@ -13,6 +14,28 @@ import {
 } from "../../components/theme";
 import { useAuth } from "@/app/authContext";
 import { Badge } from "@/components/ui";
+import { fetchUsers } from "@/services/adminService";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface EnrollableUser {
+  id: string;
+  employee_id: string;
+  username: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+  position: string | null;
+  department: string | null;
+}
+
+interface UsersPayload {
+  professors: EnrollableUser[];
+  staffs: EnrollableUser[];
+}
+
+const userLabel = (u: EnrollableUser) =>
+  `${u.lastname}, ${u.firstname} — ${u.employee_id}`;
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -333,9 +356,17 @@ function ProfessorAuthenticatorPage() {
   );
 }
 
-// ─── Admin view (full page, unchanged) ───────────────────────────────────────
+// ─── Admin view ───────────────────────────────────────────────────────────────
 
-function AdminAuthenticatorPage() {
+function AdminAuthenticatorPage({
+  users,
+  usersLoading,
+  usersError,
+}: {
+  users: UsersPayload;
+  usersLoading: boolean;
+  usersError: string | null;
+}) {
   const a = useAuthenticator();
   const [port, setPort] = useState("");
   const [slot, setSlot] = useState(1);
@@ -345,6 +376,7 @@ function AdminAuthenticatorPage() {
   const [delSlot, setDelSlot] = useState(1);
   const [confirm, setConfirm] = useState<null | "delete" | "clear">(null);
   const [clearText, setClearText] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
 
   const { status, info, enroll, sync } = a;
   const running = enroll.phase === "starting" || enroll.phase === "running";
@@ -362,6 +394,7 @@ function AdminAuthenticatorPage() {
     status.connected &&
     !running &&
     sync.status !== "saving" &&
+    !!selectedUserId &&
     !!info?.sensorConnected &&
     !!info?.enrollmentAllowed &&
     (a.tokenConfigured || !dev?.enrollAuthRequired);
@@ -541,8 +574,41 @@ function AdminAuthenticatorPage() {
 
         <Section
           title="Fingerprint enrollment"
-          description="Enrolls a fingerprint on this authenticator for your signed-in account."
+          description="Enrolls a fingerprint on this authenticator for the selected user."
         >
+          <label className="grid gap-1 text-xs text-[#64748B]">
+            User
+            <select
+              className={`${input} w-full`}
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              disabled={!canEnroll || running || usersLoading}
+            >
+              <option value="">
+                {usersLoading ? "Loading users…" : "Select a user…"}
+              </option>
+              {users.professors.length > 0 && (
+                <optgroup label="Professors">
+                  {users.professors.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {userLabel(u)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {users.staffs.length > 0 && (
+                <optgroup label="Staff">
+                  {users.staffs.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {userLabel(u)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            {usersError && <span className="text-red-600">{usersError}</span>}
+          </label>
+
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-xs text-[#64748B]">
               Slot
@@ -570,7 +636,9 @@ function AdminAuthenticatorPage() {
             <button
               className={btnPrimary}
               disabled={!canEnroll}
-              onClick={() => void a.startEnrollment(slot, timeoutMs)}
+              onClick={() =>
+                void a.startEnrollment(slot, timeoutMs, selectedUserId)
+              }
             >
               Start enrollment
             </button>
@@ -584,6 +652,7 @@ function AdminAuthenticatorPage() {
           </div>
           {!canEnroll && status.connected && !running && (
             <p className="text-xs text-[#64748B]">
+              {!selectedUserId ? "Select a user. " : ""}
               {!a.tokenConfigured && dev?.enrollAuthRequired
                 ? "Save the enrollment token. "
                 : ""}
@@ -866,6 +935,50 @@ function AdminAuthenticatorPage() {
 
 export default function AuthenticatorPage() {
   const { user } = useAuth();
-  if (user?.role === "administrator") return <AdminAuthenticatorPage />;
+  const isAdmin = user?.role === "administrator";
+  const [users, setUsers] = useState<UsersPayload>({
+    professors: [],
+    staffs: [],
+  });
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    setUsersLoading(true);
+    setUsersError(null);
+    (async () => {
+      try {
+        // Handles both the full envelope and an already-unwrapped payload.
+        const res: any = await fetchUsers();
+        const d = res?.data?.professors || res?.data?.staffs ? res.data : res;
+        if (cancelled) return;
+        setUsers({
+          professors: d?.professors ?? [],
+          staffs: d?.staffs ?? [],
+        });
+      } catch (e) {
+        if (!cancelled)
+          setUsersError(
+            e instanceof Error ? e.message : "Failed to load users.",
+          );
+      } finally {
+        if (!cancelled) setUsersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  if (isAdmin)
+    return (
+      <AdminAuthenticatorPage
+        users={users}
+        usersLoading={usersLoading}
+        usersError={usersError}
+      />
+    );
   return <ProfessorAuthenticatorPage />;
 }
