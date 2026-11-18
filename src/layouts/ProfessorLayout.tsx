@@ -7,6 +7,7 @@ import {
   profMainNav,
   profMeetNav,
   profAuthenticatorNav,
+  adminAuthenticatorNav,
   profHelpNav,
   profSettingsNav,
   settingsNav as adminSettingsNav,
@@ -54,7 +55,7 @@ export default function ProfRoot({
   const isStaff = user.role === "staff";
   const isAdmin = user.role === "administrator";
   const mainNav = isAdmin ? [] : isStaff ? staffMainNav : profMainNav;
-  const authenticatorNav = profAuthenticatorNav;
+  const authenticatorNav = isAdmin ? adminAuthenticatorNav : profAuthenticatorNav;
   const meetNav = isStaff || isAdmin ? [] : profMeetNav;
   const helpNav = isAdmin ? [] : isStaff ? staffHelpNav : profHelpNav;
   const settingsNav = isAdmin

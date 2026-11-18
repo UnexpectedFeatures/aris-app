@@ -14,6 +14,8 @@ import {
 import { useAuth } from "@/app/authContext";
 import { Badge } from "@/components/ui";
 
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
 const STEPS = [
   "First scan",
   "Lift finger",
@@ -56,50 +58,7 @@ function errText(e: BridgeError) {
   return `${hints[e.code] ?? ""}${e.message} (${e.code})`;
 }
 
-function Section({
-  title,
-  description,
-  action,
-  children,
-}: {
-  title: string;
-  description?: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className={card}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>{title}</h2>
-          {description && (
-            <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>{description}</p>
-          )}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-[#F4F6F5] p-3">
-      <p className="text-[11.5px]" style={{ color: "#8fa394" }}>{label}</p>
-      <p className="mt-0.5 truncate text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>{value}</p>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt style={{ color: "#8fa394" }}>{label}</dt>
-      <dd className="truncate">{children}</dd>
-    </>
-  );
-}
+// ─── Shared sub-components ────────────────────────────────────────────────────
 
 function EnrollSteps({
   current,
@@ -147,9 +106,243 @@ function EnrollSteps({
   );
 }
 
-export default function AuthenticatorPage() {
-  const { user } = useAuth();
-  const role = user?.role;
+// ─── Admin-only sub-components ────────────────────────────────────────────────
+
+function Section({
+  title,
+  description,
+  action,
+  children,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-[15px] font-semibold" style={{ color: "#111c14" }}>{title}</h2>
+          {description && (
+            <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>{description}</p>
+          )}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-[#F4F6F5] p-3">
+      <p className="text-[11.5px]" style={{ color: "#8fa394" }}>{label}</p>
+      <p className="mt-0.5 truncate text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>{value}</p>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt style={{ color: "#8fa394" }}>{label}</dt>
+      <dd className="truncate">{children}</dd>
+    </>
+  );
+}
+
+// ─── User (professor) view ────────────────────────────────────────────────────
+
+function FingerprintIcon({ phase }: { phase: "idle" | "running" | "done" | "failed" }) {
+  const color =
+    phase === "running"
+      ? "#2F7043"
+      : phase === "done"
+        ? "#047857"
+        : phase === "failed"
+          ? "#C0392B"
+          : "#b6c3ba";
+
+  return (
+    <svg
+      viewBox="0 0 80 80"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="w-20 h-20 transition-all duration-500"
+      aria-hidden="true"
+    >
+      <circle cx="40" cy="40" r="38" stroke={color} strokeWidth="2" opacity="0.15" />
+      <circle cx="40" cy="40" r="30" stroke={color} strokeWidth="1.5" opacity="0.2" />
+      {/* Fingerprint ridges */}
+      <path d="M40 22a18 18 0 0 1 18 18" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.4" />
+      <path d="M40 26a14 14 0 0 1 14 14" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.55" />
+      <path d="M40 30a10 10 0 0 1 10 10" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
+      <path d="M40 34a6 6 0 0 1 6 6" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.85" />
+      <path d="M40 22a18 18 0 0 0-14 8.5" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.4" />
+      <path d="M40 26a14 14 0 0 0-10 6" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.55" />
+      <path d="M40 30a10 10 0 0 0-6 4" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
+      {/* Center dot */}
+      <circle cx="40" cy="40" r="3" fill={color} opacity="0.9" />
+      {/* Bottom ridges */}
+      <path d="M26 46a14 14 0 0 0 28 0" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.4" />
+      <path d="M30 50a10 10 0 0 0 20 0" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.55" />
+      <path d="M34 54a6 6 0 0 0 12 0" stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
+    </svg>
+  );
+}
+
+function ProfessorAuthenticatorPage() {
+  const a = useAuthenticator();
+  const [port, setPort] = useState("");
+
+  const { status, info, enroll } = a;
+  const running = enroll.phase === "starting" || enroll.phase === "running";
+  const dev = status.device;
+
+  const connLabel = a.connecting
+    ? "Connecting"
+    : !status.connected
+      ? "Disconnected"
+      : running || status.busy
+        ? "Busy"
+        : info && !info.sensorConnected
+          ? "Sensor unavailable"
+          : "Connected";
+
+  useEffect(() => {
+    if (status.connected && status.portName) {
+      setPort(status.portName);
+    } else if (!status.connected) {
+      setPort("");
+    }
+  }, [status.connected, status.portName]);
+
+  return (
+    <div className="pb-8 max-w-2xl mx-auto">
+      {/* Page header */}
+      <div className="mb-6">
+        <h1 className="text-[22px] font-bold tracking-tight" style={{ color: "#111c14" }}>
+          Fingerprint Authenticator
+        </h1>
+        <p className="mt-1 text-[13.5px]" style={{ color: "#8fa394" }}>
+          Connect the ARIS biometric device to this workstation.
+        </p>
+      </div>
+
+      {/* Global error */}
+      {a.error && (
+        <div className={`${alertErr} mb-4`} role="alert">
+          {errText(a.error)}{" "}
+          <button className="ml-2 underline font-medium" onClick={a.clearError}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* ── Device connection card ── */}
+      <div
+        className="rounded-3xl bg-white p-5 shadow-[0_1px_2px_rgba(16,32,20,0.05)]"
+        style={{ border: status.connected ? "1px solid #d7ebdd" : "1px solid #e8ecea" }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-[14px] font-semibold" style={{ color: "#111c14" }}>
+              Device Connection
+            </h2>
+            <p className="text-[12px] mt-0.5" style={{ color: "#8fa394" }}>
+              Select the COM port for the ARIS authenticator.
+            </p>
+          </div>
+          <Badge tone={status.connected ? "green" : "gray"} dot>
+            {connLabel}
+          </Badge>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className={`${input} min-w-0 flex-1`}
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
+            disabled={status.connected}
+          >
+            <option value="">
+              {a.ports.length ? "Select a COM port…" : "No devices detected"}
+            </option>
+            {a.ports.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}
+                {p.product ? ` — ${p.product}` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            className={btn}
+            onClick={() => void a.refreshPorts()}
+            disabled={status.connected}
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="flex gap-2 mt-3">
+          <button
+            className={btnPrimary}
+            onClick={() => void a.connect(port)}
+            disabled={!port || status.connected || a.connecting}
+          >
+            {a.connecting ? "Connecting…" : "Connect"}
+          </button>
+          <button
+            className={btn}
+            onClick={() => void a.disconnect()}
+            disabled={!status.connected || running}
+          >
+            Disconnect
+          </button>
+        </div>
+
+        {/* Device details — compact */}
+        {dev && (
+          <div
+            className="mt-4 pt-4 grid grid-cols-2 gap-x-6 gap-y-1.5 border-t text-[12px]"
+            style={{ borderColor: "#f0f4f1" }}
+          >
+            <div>
+              <span style={{ color: "#8fa394" }}>Device</span>
+              <p className="font-medium truncate" style={{ color: "#111c14" }}>{dev.deviceId}</p>
+            </div>
+            <div>
+              <span style={{ color: "#8fa394" }}>Firmware</span>
+              <p className="font-medium" style={{ color: "#111c14" }}>{dev.firmwareVersion ?? "—"}</p>
+            </div>
+            <div>
+              <span style={{ color: "#8fa394" }}>Sensor</span>
+              <p className="font-medium" style={{ color: "#111c14" }}>
+                {info
+                  ? info.sensorConnected
+                    ? "Connected"
+                    : "Disconnected"
+                  : (dev.sensorStatus ?? "—")}
+              </p>
+            </div>
+            <div>
+              <span style={{ color: "#8fa394" }}>Slots free</span>
+              <p className="font-medium" style={{ color: "#111c14" }}>
+                {info?.slotsFree != null ? `${info.slotsFree} / ${info.capacity ?? "?"}` : "—"}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin view (full page, unchanged) ───────────────────────────────────────
+
+function AdminAuthenticatorPage() {
   const a = useAuthenticator();
   const [port, setPort] = useState("");
   const [slot, setSlot] = useState(1);
@@ -231,7 +424,7 @@ export default function AuthenticatorPage() {
               Authenticator
             </h1>
             <p className="mt-0.5 text-[13.5px]" style={{ color: "#8fa394" }}>
-              Connect your ARIS authenticator and enroll your fingerprint.
+              Connect your ARIS authenticator and enroll fingerprints.
             </p>
           </div>
           <Badge tone={status.connected ? "green" : "gray"} dot>
@@ -467,6 +660,7 @@ export default function AuthenticatorPage() {
           )}
         </Section>
 
+        {/* Enrollment token — admin only */}
         <Section
           title="Enrollment token"
           description="Same value as ENROLL_AUTH_TOKEN in the firmware."
@@ -534,145 +728,152 @@ export default function AuthenticatorPage() {
           </form>
         </Section>
 
-        {role === "administrator" && (
-          <details className={card}>
-            <summary className="cursor-pointer text-base font-semibold">
-              Advanced management
-            </summary>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                className={btn}
-                disabled={!status.connected}
-                onClick={() =>
-                  void adv("health_check", () => api.send("health_check"))
-                }
-              >
-                Health check
-              </button>
-              <button
-                className={btn}
-                disabled={!status.connected}
-                onClick={() => void adv("ping", () => api.send("ping"))}
-              >
-                Ping
-              </button>
-              <button
-                className={btn}
-                disabled={!status.connected}
-                onClick={() =>
-                  void adv("get_status", () => api.send("get_status"))
-                }
-              >
-                Get status
-              </button>
-              <button
-                className={btn}
-                disabled={!status.connected}
-                onClick={() =>
-                  void adv("finger_detected", () => api.send("finger_detected"))
-                }
-              >
-                Finger detected
-              </button>
-            </div>
-            {advOut && (
-              <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-[#EDEDED] p-3 text-xs">
-                {advOut}
-              </pre>
-            )}
+        {/* Advanced management — admin only */}
+        <details className={card}>
+          <summary className="cursor-pointer text-base font-semibold">
+            Advanced management
+          </summary>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className={btn}
+              disabled={!status.connected}
+              onClick={() =>
+                void adv("health_check", () => api.send("health_check"))
+              }
+            >
+              Health check
+            </button>
+            <button
+              className={btn}
+              disabled={!status.connected}
+              onClick={() => void adv("ping", () => api.send("ping"))}
+            >
+              Ping
+            </button>
+            <button
+              className={btn}
+              disabled={!status.connected}
+              onClick={() =>
+                void adv("get_status", () => api.send("get_status"))
+              }
+            >
+              Get status
+            </button>
+            <button
+              className={btn}
+              disabled={!status.connected}
+              onClick={() =>
+                void adv("finger_detected", () => api.send("finger_detected"))
+              }
+            >
+              Finger detected
+            </button>
+          </div>
+          {advOut && (
+            <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-[#EDEDED] p-3 text-xs">
+              {advOut}
+            </pre>
+          )}
 
-            <h3 className="mt-4 text-sm font-semibold text-red-600">
-              Destructive (requires enrollment token)
-            </h3>
-            <div className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="grid gap-1 text-xs text-[#64748B]">
-                Slot
-                <input
-                  type="number"
-                  className={`${input} w-24`}
-                  min={0}
-                  value={delSlot}
-                  onChange={(e) => setDelSlot(Number(e.target.value))}
-                />
-              </label>
-              <button
-                className={btnDanger}
-                disabled={!status.connected || running}
-                onClick={() => setConfirm("delete")}
-              >
-                Delete template…
-              </button>
-              <button
-                className={btnDanger}
-                disabled={!status.connected || running}
-                onClick={() => setConfirm("clear")}
-              >
-                Clear ALL templates…
-              </button>
-            </div>
-            {confirm && (
-              <div
-                className="mt-3 space-y-2 rounded-md border border-red-500 bg-white p-3 text-sm"
-                role="alertdialog"
-              >
-                {confirm === "delete" ? (
+          <h3 className="mt-4 text-sm font-semibold text-red-600">
+            Destructive (requires enrollment token)
+          </h3>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="grid gap-1 text-xs text-[#64748B]">
+              Slot
+              <input
+                type="number"
+                className={`${input} w-24`}
+                min={0}
+                value={delSlot}
+                onChange={(e) => setDelSlot(Number(e.target.value))}
+              />
+            </label>
+            <button
+              className={btnDanger}
+              disabled={!status.connected || running}
+              onClick={() => setConfirm("delete")}
+            >
+              Delete template…
+            </button>
+            <button
+              className={btnDanger}
+              disabled={!status.connected || running}
+              onClick={() => setConfirm("clear")}
+            >
+              Clear ALL templates…
+            </button>
+          </div>
+          {confirm && (
+            <div
+              className="mt-3 space-y-2 rounded-md border border-red-500 bg-white p-3 text-sm"
+              role="alertdialog"
+            >
+              {confirm === "delete" ? (
+                <p>
+                  Delete the fingerprint template in slot{" "}
+                  <strong>{delSlot}</strong>? This cannot be undone.
+                </p>
+              ) : (
+                <>
                   <p>
-                    Delete the fingerprint template in slot{" "}
-                    <strong>{delSlot}</strong>? This cannot be undone.
+                    <strong>
+                      All fingerprint templates on this authenticator will be
+                      erased.
+                    </strong>{" "}
+                    Everyone enrolled will lose access. Type ERASE to confirm.
                   </p>
-                ) : (
-                  <>
-                    <p>
-                      <strong>
-                        All fingerprint templates on this authenticator will be
-                        erased.
-                      </strong>{" "}
-                      Everyone enrolled will lose access. Type ERASE to confirm.
-                    </p>
-                    <input
-                      className={input}
-                      value={clearText}
-                      onChange={(e) => setClearText(e.target.value)}
-                    />
-                  </>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    className={btn}
-                    onClick={() => {
-                      setConfirm(null);
-                      setClearText("");
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className={btnDanger}
-                    disabled={confirm === "clear" && clearText !== "ERASE"}
-                    onClick={async () => {
-                      const which = confirm;
-                      setConfirm(null);
-                      setClearText("");
-                      await adv(
+                  <input
+                    className={input}
+                    value={clearText}
+                    onChange={(e) => setClearText(e.target.value)}
+                  />
+                </>
+              )}
+              <div className="flex gap-2">
+                <button
+                  className={btn}
+                  onClick={() => {
+                    setConfirm(null);
+                    setClearText("");
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className={btnDanger}
+                  disabled={confirm === "clear" && clearText !== "ERASE"}
+                  onClick={async () => {
+                    const which = confirm;
+                    setConfirm(null);
+                    setClearText("");
+                    await adv(
+                      which === "delete"
+                        ? "delete_template"
+                        : "clear_templates",
+                      () =>
                         which === "delete"
-                          ? "delete_template"
-                          : "clear_templates",
-                        () =>
-                          which === "delete"
-                            ? api.deleteTemplate(delSlot)
-                            : api.clearTemplates(),
-                      );
-                      void a.refreshInfo();
-                    }}
-                  >
-                    Confirm
-                  </button>
-                </div>
+                          ? api.deleteTemplate(delSlot)
+                          : api.clearTemplates(),
+                    );
+                    void a.refreshInfo();
+                  }}
+                >
+                  Confirm
+                </button>
               </div>
-            )}
-          </details>
-        )}
+            </div>
+          )}
+        </details>
       </div>
     </div>
   );
+}
+
+// ─── Entry point ──────────────────────────────────────────────────────────────
+
+export default function AuthenticatorPage() {
+  const { user } = useAuth();
+  if (user?.role === "administrator") return <AdminAuthenticatorPage />;
+  return <ProfessorAuthenticatorPage />;
 }

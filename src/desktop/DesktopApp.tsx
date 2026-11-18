@@ -152,7 +152,8 @@ export default function DesktopApp() {
     sessionStorage.setItem("aris-google-id-token", idToken);
     sessionStorage.setItem("aris-google-email", session.user.email);
     localStorage.setItem("aris-last-oauth-email", session.user.email);
-    await desktopRouter.navigate("/prof");
+    const destination = session.user.role === "administrator" ? "/admin" : "/prof";
+    await desktopRouter.navigate(destination);
     setUser(session.user);
   };
 

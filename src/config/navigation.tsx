@@ -47,6 +47,25 @@ export const settingsNav: NavItem[] = [
   },
 ];
 
+export const adminAuthenticatorNav: NavItem[] = [
+  {
+    path: "/admin/biometrics",
+    label: "Authenticator",
+    icon: icon(
+      <>
+        <path d="M12 11a2 2 0 00-2 2c0 1.5-.2 3-.6 4.5" />
+        <path d="M14 13c0 2.5-.4 4.9-1.2 7" />
+        <path d="M8.5 14.5c-.1 1.5-.4 3-1 4.4" />
+        <path d="M16 14c0 2-.2 4-.7 5.8" />
+        <path d="M12 7a6 6 0 00-6 6" />
+        <path d="M18 13a6 6 0 00-12 0" />
+        <path d="M12 3a10 10 0 00-10 10" />
+        <path d="M22 13a10 10 0 00-2-6" />
+      </>,
+    ),
+  },
+];
+
 // Professor-side variant (/prof)
 export const profMainNav: NavItem[] = [
   {

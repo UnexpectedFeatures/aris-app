@@ -39,19 +39,22 @@ export async function signInWithGoogle(idToken: string): Promise<AuthSession> {
 	const payload = "data" in response.data
 		? (response.data as SignInEnvelope).data
 		: response.data as SignInPayload;
-	if (!payload?.user?.id || !payload.user.email || payload.user.role !== "professor") {
-		throw new Error("Only registered professors can sign in to the desktop app.");
+	const serverRole = payload?.user?.role;
+	const isAllowedRole = serverRole === "professor" || serverRole === "administrator" || serverRole === "admin";
+	if (!payload?.user?.id || !payload.user.email || !isAllowedRole) {
+		throw new Error("Only registered professors and administrators can sign in to the desktop app.");
 	}
 	const name = payload.user.name?.trim()
 		|| [payload.user.firstname, payload.user.lastname].filter(Boolean).join(" ").trim()
 		|| payload.user.email;
+	const resolvedRole: "professor" | "administrator" = serverRole === "professor" ? "professor" : "administrator";
 	return {
 		...payload,
 		user: {
 			id: payload.user.id,
 			email: payload.user.email,
 			name,
-			role: "professor",
+			role: resolvedRole,
 			employee_id: payload.user.employee_id,
 		},
 	};

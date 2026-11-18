@@ -59,11 +59,12 @@ export const desktopRouter = createHashRouter([
     children: [
       {
         index: true,
-        element: <Navigate to="/admin/settings/system" replace />,
+        element: <Navigate to="/admin/biometrics" replace />,
       },
+      { path: "biometrics", Component: AuthenticatorPage },
       { path: "settings/system", Component: SystemSettings },
       { path: "settings/user", Component: UserSettings },
-      { path: "*", element: <Navigate to="/admin/settings/system" replace /> },
+      { path: "*", element: <Navigate to="/admin/biometrics" replace /> },
     ],
   },
   {
