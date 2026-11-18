@@ -24,4 +24,8 @@ export default defineConfig(({ mode }) => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  optimizeDeps: {
+    include: ["xlsx", "jspdf", "jspdf-autotable"],
+  },
 }));

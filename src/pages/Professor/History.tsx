@@ -50,6 +50,133 @@ export type LatestSubmission = {
   rawRecord?: HistoryRecord;
 };
 
+/* ─── Export ───────────────────────────────────────────────────────────────── */
+
+type ExportFormat = "csv" | "xlsx" | "pdf";
+
+const EXPORT_HEADERS = [
+  "Type",
+  "Period",
+  "Units",
+  "Stage",
+  "Submitted",
+  "Status",
+  "Reference",
+];
+
+const toExportRow = (r: HistoryRecord): string[] => [
+  r.type,
+  r.period ?? "",
+  r.units ?? "",
+  r.stage || "Checker",
+  r.submitted ?? "",
+  r.status,
+  r.record?.reference || r.id || "",
+];
+
+// Tauri's webview ignores <a download>, so use the native save dialog there
+// and fall back to a normal browser download everywhere else.
+async function saveFile(
+  bytes: Uint8Array,
+  filename: string,
+  filterName: string,
+  mime: string,
+) {
+  if ("__TAURI_INTERNALS__" in window) {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+    const ext = filename.split(".").pop() as string;
+    const path = await save({
+      defaultPath: filename,
+      filters: [{ name: filterName, extensions: [ext] }],
+    });
+    if (!path) return; // user cancelled
+    await writeFile(path, bytes);
+    return;
+  }
+  const url = URL.createObjectURL(
+    new Blob([bytes as BlobPart], { type: mime }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportRecords(
+  format: ExportFormat,
+  records: HistoryRecord[],
+  userName?: string,
+) {
+  const body = records.map(toExportRow);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const base = `submission-history-${stamp}`;
+
+  if (format === "csv") {
+    const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv = [EXPORT_HEADERS, ...body]
+      .map((row) => row.map(esc).join(","))
+      .join("\r\n");
+    // BOM so Excel reads UTF-8 correctly
+    await saveFile(
+      new TextEncoder().encode("\uFEFF" + csv),
+      `${base}.csv`,
+      "CSV",
+      "text/csv;charset=utf-8",
+    );
+    return;
+  }
+
+  if (format === "xlsx") {
+    const XLSX = await import("xlsx");
+    const ws = XLSX.utils.aoa_to_sheet([EXPORT_HEADERS, ...body]);
+    ws["!cols"] = EXPORT_HEADERS.map((h, i) => ({
+      wch: Math.max(h.length, ...body.map((r) => String(r[i]).length)) + 2,
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Submission History");
+    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    await saveFile(
+      new Uint8Array(out),
+      `${base}.xlsx`,
+      "Excel Workbook",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    return;
+  }
+
+  const { jsPDF } = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  doc.setFontSize(16);
+  doc.text("Submission History", 40, 40);
+  doc.setFontSize(10);
+  doc.setTextColor(120);
+  doc.text(
+    `${userName ? `${userName} · ` : ""}Generated ${stamp} · ${records.length} record${records.length === 1 ? "" : "s"}`,
+    40,
+    58,
+  );
+  autoTable(doc, {
+    startY: 72,
+    head: [EXPORT_HEADERS],
+    body,
+    styles: { fontSize: 9, cellPadding: 5 },
+    headStyles: { fillColor: [47, 112, 67] },
+    alternateRowStyles: { fillColor: [250, 251, 250] },
+    margin: { left: 40, right: 40 },
+  });
+  await saveFile(
+    new Uint8Array(doc.output("arraybuffer")),
+    `${base}.pdf`,
+    "PDF",
+    "application/pdf",
+  );
+}
+
 /* ─── Latest submission routing ────────────────────────────────────────────── */
 
 type StageState = "done" | "current" | "pending" | "rejected";
@@ -728,6 +855,8 @@ export default function ProfHistory() {
   }, [records]);
   const [tab, setTab] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<{
     row: HistoryRecord;
     idx: number;
@@ -770,6 +899,23 @@ export default function ProfHistory() {
     (record) => record.status === "Rejected" || record.status === "Disapproved",
   ).length;
 
+  // Exports exactly what the table is showing (current tab + search)
+  const handleExport = async (format: ExportFormat) => {
+    setExportOpen(false);
+    if (rows.length === 0 || exporting) return;
+    setExporting(true);
+    try {
+      await exportRecords(format, rows, user?.name);
+    } catch (err) {
+      console.error(`Export (${format}) failed`, err);
+      window.alert(
+        `Could not export ${format.toUpperCase()}. Please try again.`,
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="pb-2">
       <PageTitle
@@ -789,18 +935,57 @@ export default function ProfHistory() {
               </svg>
               Refresh
             </GhostButton>
-            <GhostButton>
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                className="w-4 h-4"
-              >
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-              </svg>
-              Export
-            </GhostButton>
+            <div className="relative">
+              <GhostButton onClick={() => setExportOpen((o) => !o)}>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  className={`w-4 h-4 ${exporting ? "animate-pulse" : ""}`}
+                >
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                </svg>
+                {exporting ? "Exporting..." : "Export"}
+              </GhostButton>
+              {exportOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-20"
+                    onClick={() => setExportOpen(false)}
+                  />
+                  <div
+                    className="absolute right-0 mt-1.5 w-44 z-30 rounded-xl border bg-white shadow-lg overflow-hidden"
+                    style={{ borderColor: "#eef1ef" }}
+                  >
+                    <p
+                      className="px-3 pt-2.5 pb-1 text-[10.5px] uppercase tracking-wide font-semibold"
+                      style={{ color: "#b6c3ba" }}
+                    >
+                      {rows.length} record{rows.length === 1 ? "" : "s"}
+                    </p>
+                    {(
+                      [
+                        ["csv", "CSV (.csv)"],
+                        ["xlsx", "Excel (.xlsx)"],
+                        ["pdf", "PDF (.pdf)"],
+                      ] as [ExportFormat, string][]
+                    ).map(([fmt, label]) => (
+                      <button
+                        key={fmt}
+                        type="button"
+                        disabled={rows.length === 0}
+                        onClick={() => handleExport(fmt)}
+                        className="w-full text-left px-3 py-2 text-[12.5px] hover:bg-[#fafbfa] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                        style={{ color: "#3d4a41" }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         }
       />

@@ -8,6 +8,8 @@
     "opener:default",
     "oauth:allow-start",
     "oauth:allow-cancel",
-    "updater:default"
+    "updater:default",
+    "dialog:allow-save",
+    "fs:allow-write-file"
   ]
 }

@@ -769,6 +769,8 @@ async fn close_in_app_meet(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_fs::init())
     .manage(biometrics::AuthenticatorState::default())
     .on_permission_request(|_webview, kind| {
       println!("[ARIS RUST] 🎙️ Webview permission requested: {:?}", kind);
