@@ -226,7 +226,8 @@ export default function ProfOverview() {
               })}
             </p>
             <p className="text-[12.5px] mt-1" style={{ color: "#7aaa86" }}>
-              September Cycle 1 — AR & DTR
+              {date.toLocaleDateString("en-US", { month: "long" }) + " "}
+              {/* Cycle 1  */}— AR & DTR
             </p>
           </Card>
           <Card>

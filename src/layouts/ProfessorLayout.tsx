@@ -55,7 +55,9 @@ export default function ProfRoot({
   const isStaff = user.role === "staff";
   const isAdmin = user.role === "administrator";
   const mainNav = isAdmin ? [] : isStaff ? staffMainNav : profMainNav;
-  const authenticatorNav = isAdmin ? adminAuthenticatorNav : profAuthenticatorNav;
+  const authenticatorNav = isAdmin
+    ? adminAuthenticatorNav
+    : profAuthenticatorNav;
   const meetNav = isStaff || isAdmin ? [] : profMeetNav;
   const helpNav = isAdmin ? [] : isStaff ? staffHelpNav : profHelpNav;
   const settingsNav = isAdmin
@@ -100,9 +102,7 @@ export default function ProfRoot({
             strokeWidth="2"
             className={`h-3.5 w-3.5 transition-[opacity,transform] duration-200 ${
               active ? "opacity-100" : "opacity-0"
-            } group-focus:opacity-100 ${
-              submenuOpen ? "rotate-90" : ""
-            }`}
+            } group-focus:opacity-100 ${submenuOpen ? "rotate-90" : ""}`}
             aria-hidden="true"
           >
             <path d="M9 18l6-6-6-6" />
@@ -396,7 +396,7 @@ export default function ProfRoot({
                   {user.name}
                 </p>
                 <p className="text-[12.5px] mt-1" style={{ color: "#8fa394" }}>
-                  Welcome back to ARIS 👋
+                  Welcome back to ARIS
                 </p>
               </div>
             </div>

@@ -198,7 +198,8 @@ export default function StaffOverview() {
               })}
             </p>
             <p className="mt-1 text-[12.5px]" style={{ color: "#7aaa86" }}>
-              September Cycle 1 — AR &amp; DTR
+              {date.toLocaleDateString("en-US", { month: "long" }) + " "}
+              {/* Cycle 1  */}— AR & DTR
             </p>
           </Card>
           <Card>
