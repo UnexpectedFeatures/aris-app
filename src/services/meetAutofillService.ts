@@ -30,7 +30,7 @@ const appliedKey = (userKey?: string) =>
   userKey ? `aris:meet_applied_teaching_load:${userKey.toLowerCase().trim()}` : "aris:meet_applied_teaching_load";
 
 export function formatTime12(date: Date): string {
-  if (isNaN(date.getTime())) return "08:00 AM";
+  if (isNaN(date.getTime())) return "";
   const hours = date.getHours();
   const minutes = date.getMinutes();
   const period = hours >= 12 ? "PM" : "AM";
@@ -40,9 +40,9 @@ export function formatTime12(date: Date): string {
 }
 
 export function getDayAbbrev(date: Date): string {
-  if (isNaN(date.getTime())) return "MON";
+  if (isNaN(date.getTime())) return "";
   const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-  return days[date.getDay()] || "MON";
+  return days[date.getDay()] || "";
 }
 
 export function parseCourseString(
@@ -59,7 +59,7 @@ export function parseCourseString(
   // 1. Try matching with known courses from database catalog
   for (const c of availableCourses) {
     if (c.code && trimmed.toUpperCase().includes(c.code.toUpperCase())) {
-      let section = "BSIT 2B";
+      let section = "";
       const secMatch = trimmed.match(/[·–-]\s*([A-Z0-9\s-]+?)(?:\s*\(|$)/i);
       if (secMatch && secMatch[1]) {
         section = secMatch[1].trim().toUpperCase();
@@ -73,11 +73,11 @@ export function parseCourseString(
     }
   }
 
-  // 2. Regex for code patterns e.g. "CC 105 · BSIT 2B (Information Management)"
+  // 2. Regex for code patterns with an optional section and course title.
   const codeMatch = trimmed.match(/^([A-Z]{2,4}\s*\d{2,4}[A-Z]?)/i);
   if (codeMatch) {
     const courseCode = codeMatch[1].toUpperCase();
-    let section = "BSIT 2B";
+    let section = "";
     const secMatch = trimmed.match(/[·–-]\s*([A-Z0-9\s-]+?)(?:\s*\(|$)/i);
     if (secMatch && secMatch[1]) {
       section = secMatch[1].trim().toUpperCase();
@@ -100,7 +100,7 @@ export function parseCourseString(
     return {
       courseCode: "CC 105",
       courseTitle: "INFORMATION MANAGEMENT",
-      section: "BSIT 2B",
+      section: "",
       units: 3,
     };
   }
@@ -108,7 +108,7 @@ export function parseCourseString(
   return {
     courseCode: "CC 116",
     courseTitle: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
-    section: "BSCS 3-B",
+    section: "",
     units: 5,
   };
 }

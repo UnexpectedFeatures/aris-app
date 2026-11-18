@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
 import { Avatar, Badge, initialsColor } from "@/components/ui";
+import { ArScheduleCell } from "@/components/ArScheduleCell";
+import {
+  formatArPeriodRange,
+  formatManilaTimestamp,
+  formatProgramSection,
+} from "@/utils/arRecordDisplay";
 
 function formatHeldDates(val?: string) {
   if (!val) return "";
@@ -131,6 +137,8 @@ function DetailSection({
 }
 
 function DetailTable({ num, table }: { num: string; table: RecordTable }) {
+  const isArTable = table.columns[1] === "Program, Year & Section";
+
   return (
     <div className="space-y-3">
       <div
@@ -176,15 +184,36 @@ function DetailTable({ num, table }: { num: string; table: RecordTable }) {
                   className="border-b"
                   style={{ borderColor: "#111c14" }}
                 >
-                  {row.map((cell, ci) => (
-                    <td
-                      key={ci}
-                      className={`px-3 py-2.5 text-center text-[12px] font-medium text-[#111c14] ${ci < row.length - 1 ? 'border-r' : ''}`}
-                      style={{ borderColor: "#111c14" }}
-                    >
-                      {cell}
-                    </td>
-                  ))}
+                  {table.columns.map((_, ci) => {
+                    const cell = row[ci] ?? "";
+                    return (
+                      <td
+                        key={ci}
+                        className={`px-3 py-2.5 text-center text-[12px] font-medium text-[#111c14] ${ci < table.columns.length - 1 ? 'border-r' : ''}`}
+                        style={{ borderColor: "#111c14" }}
+                      >
+                        {isArTable && ci === 1
+                          ? formatProgramSection(cell)
+                          : isArTable && ci === 3
+                            ? (
+                                <ArScheduleCell
+                                  days={row[3]}
+                                  time={row[4]}
+                                  field="days"
+                                />
+                              )
+                            : isArTable && ci === 4
+                              ? (
+                                  <ArScheduleCell
+                                    days={row[3]}
+                                    time={row[4]}
+                                    field="time"
+                                  />
+                                )
+                              : cell}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
 
@@ -313,9 +342,15 @@ export function SubmissionDetail({
                 : "Daily Time Record (DTR)"
             }
           />
-          <DetailField label="Period" value={r.period} />
+          <DetailField
+            label="Period"
+            value={formatArPeriodRange(r.period, loggedAt || r.reviewedAt)}
+          />
           <DetailField label="Reference" value={r.reference} />
-          <DetailField label="Logged Time" value={loggedAt} />
+          <DetailField
+            label="Logged Time"
+            value={formatManilaTimestamp(loggedAt)}
+          />
         </div>
       </DetailSection>
 
@@ -398,7 +433,10 @@ export function SubmissionDetail({
               </span>
             )}
           </div>
-          <DetailField label="Reviewed At" value={r.reviewedAt} />
+          <DetailField
+            label="Reviewed At"
+            value={formatManilaTimestamp(r.reviewedAt)}
+          />
           <DetailField
             label="Remark"
             value={<span className="font-normal">{r.remark}</span>}

@@ -21,6 +21,10 @@ import {
   type RecordPayload,
   type StatusKind,
 } from "@/components/ui";
+import {
+  formatArPeriodRange,
+  formatManilaTimestamp,
+} from "@/utils/arRecordDisplay";
 
 type HistoryRecord = {
   id?: string;
@@ -66,10 +70,10 @@ const EXPORT_HEADERS = [
 
 const toExportRow = (r: HistoryRecord): string[] => [
   r.type,
-  r.period ?? "",
+  formatArPeriodRange(r.period ?? "", r.submitted),
   r.units ?? "",
   r.stage || "Checker",
-  r.submitted ?? "",
+  formatManilaTimestamp(r.submitted),
   r.status,
   r.record?.reference || r.id || "",
 ];
@@ -841,13 +845,13 @@ export default function ProfHistory() {
     const latest = sorted[0] || records[0];
     return {
       type: latest.type,
-      period: latest.period,
+      period: formatArPeriodRange(latest.period, latest.submitted),
       units: latest.units,
       reference: latest.record?.reference || latest.id || "AR-001",
-      filed: latest.submitted,
+      filed: formatManilaTimestamp(latest.submitted),
       status: latest.status,
       currentStage: latest.currentStage || latest.stage || "Checker",
-      currentSince: latest.submitted,
+      currentSince: formatManilaTimestamp(latest.submitted),
       remark: latest.record?.remark,
       reviewer: latest.record?.reviewer,
       rawRecord: latest,
@@ -1061,7 +1065,7 @@ export default function ProfHistory() {
                 {r.type}
               </span>
               <span className="text-[13px]" style={{ color: "#3d4a41" }}>
-                {r.period}
+                {formatArPeriodRange(r.period, r.submitted)}
               </span>
               <span
                 className="text-[13px] tabular-nums"
@@ -1108,7 +1112,7 @@ export default function ProfHistory() {
                 </span>
               </span>
               <span className="text-[13px]" style={{ color: "#8fa394" }}>
-                {r.submitted}
+                {formatManilaTimestamp(r.submitted)}
               </span>
               <span className="flex items-center justify-end gap-2">
                 <Badge tone={statusTone[r.status]} dot>
