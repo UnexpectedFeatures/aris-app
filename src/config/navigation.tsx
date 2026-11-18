@@ -72,7 +72,7 @@ export const profMainNav: NavItem[] = [
     path: "/prof/submit",
     label: "Submit",
     children: [
-      { path: "/prof/submit", label: "Accomplishment Report" },
+        { path: "/prof/submit", label: "AR" },
       { path: "/submit/dtr", label: "DTR" },
     ],
     icon: icon(

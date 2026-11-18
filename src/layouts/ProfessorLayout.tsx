@@ -26,7 +26,7 @@ const isSubmitRoute = (pathname: string) =>
   isPathOrDescendant(pathname, "/prof/submit");
 
 function isSubmitChildActive(pathname: string, path: string, label: string) {
-  if (label === "Accomplishment Report") {
+  if (label === "AR") {
     return (
       pathname === path ||
       isPathOrDescendant(pathname, "/submit/accomplishment")

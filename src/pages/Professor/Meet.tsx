@@ -711,19 +711,7 @@ export default function ProfMeet() {
   const handleStartInstant = async () => {
     if (activeCallRef.current || verify.open) return;
 
-    if (!authConnected) {
-      setToastMessage("Connect your authenticator first to launch a meeting.");
-      return;
-    }
-
-    // Fingerprint gate: no verification, no meeting
-    const verifiedAt = await requestVerify("in");
-    if (!verifiedAt) {
-      setToastMessage(
-        "Fingerprint verification is required to launch a meeting.",
-      );
-      return;
-    }
+      // Fingerprint check disabled - proceed directly to meeting
 
     isEndingCallRef.current = false;
     setLiveTranscript([]);
@@ -763,19 +751,7 @@ export default function ProfMeet() {
 
     if (activeCallRef.current || verify.open) return;
 
-    if (!authConnected) {
-      setToastMessage("Connect your authenticator first to join a meeting.");
-      return;
-    }
-
-    // Fingerprint gate: no verification, no joining
-    const verifiedAt = await requestVerify("in");
-    if (!verifiedAt) {
-      setToastMessage(
-        "Fingerprint verification is required to join a meeting.",
-      );
-      return;
-    }
+      // Fingerprint check disabled - proceed directly to meeting
 
     isEndingCallRef.current = false;
     setLiveTranscript([]);
