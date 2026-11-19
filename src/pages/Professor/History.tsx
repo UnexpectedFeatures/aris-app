@@ -858,6 +858,7 @@ export default function ProfHistory() {
     };
   }, [records]);
   const [tab, setTab] = useState("All");
+  const [viewMode, setViewMode] = useState<"separated" | "unified">("separated");
   const [searchQuery, setSearchQuery] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -903,6 +904,66 @@ export default function ProfHistory() {
     (record) => record.status === "Rejected" || record.status === "Disapproved",
   ).length;
 
+  // Unified cycle view: group by period
+  type ProfCycleGroup = {
+    period: string;
+    ar: HistoryRecord | null;
+    dtr: HistoryRecord | null;
+    readiness: "ready" | "pending" | "blocked";
+  };
+
+  const unifiedGroups: ProfCycleGroup[] = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const source = records.filter((r) => {
+      if (!q) return true;
+      const matchPeriod = r.period?.toLowerCase().includes(q);
+      const matchRef =
+        r.id?.toLowerCase().includes(q) ||
+        r.record?.reference?.toLowerCase().includes(q);
+      const matchUnits = r.units?.toLowerCase().includes(q);
+      const matchStage = r.stage?.toLowerCase().includes(q);
+      const matchStatus = r.status?.toLowerCase().includes(q);
+      return Boolean(
+        matchPeriod || matchRef || matchUnits || matchStage || matchStatus,
+      );
+    });
+
+    const map = new Map<string, { ar: HistoryRecord | null; dtr: HistoryRecord | null }>();
+    for (const r of source) {
+      const formattedPeriod = formatArPeriodRange(r.period, r.submitted);
+      const existing = map.get(formattedPeriod) ?? { ar: null, dtr: null };
+      if (r.type === "AR") {
+        if (!existing.ar) existing.ar = r;
+      } else {
+        if (!existing.dtr) existing.dtr = r;
+      }
+      map.set(formattedPeriod, existing);
+    }
+
+    return Array.from(map.entries()).map(([period, { ar, dtr }]) => {
+      const arStatus = ar?.status;
+      const dtrStatus = dtr?.status;
+      const isBlocked =
+        arStatus === "Rejected" || arStatus === "Disapproved" ||
+        dtrStatus === "Rejected" || dtrStatus === "Disapproved";
+      const isReady = arStatus === "Approved" && dtrStatus === "Approved";
+
+      return {
+        period,
+        ar,
+        dtr,
+        readiness: isBlocked ? ("blocked" as const) : isReady ? ("ready" as const) : ("pending" as const),
+      };
+    });
+  }, [records, searchQuery]);
+
+  const unifiedStats = useMemo(() => ({
+    total: unifiedGroups.length,
+    ready: unifiedGroups.filter((g) => g.readiness === "ready").length,
+    pending: unifiedGroups.filter((g) => g.readiness === "pending").length,
+    blocked: unifiedGroups.filter((g) => g.readiness === "blocked").length,
+  }), [unifiedGroups]);
+
   // Exports exactly what the table is showing (current tab + search)
   const handleExport = async (format: ExportFormat) => {
     setExportOpen(false);
@@ -927,6 +988,57 @@ export default function ProfHistory() {
         subtitle="Every AR / DTR you have filed, with its verification outcome."
         action={
           <div className="flex items-center gap-2">
+            <div
+              className="flex items-center gap-1 p-0.5 rounded-xl border"
+              style={{ borderColor: "#e2e8e4", background: "#f7f9f8" }}
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode("separated")}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors cursor-pointer"
+                style={{
+                  background: viewMode === "separated" ? "#fff" : "transparent",
+                  color: viewMode === "separated" ? "#111c14" : "#5a6b5e",
+                  boxShadow:
+                    viewMode === "separated" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                }}
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  className="w-3.5 h-3.5"
+                >
+                  <rect x="2" y="2" width="12" height="12" rx="1.5" />
+                  <path d="M2 6h12M6 2v12" />
+                </svg>
+                Individual
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("unified")}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors cursor-pointer"
+                style={{
+                  background: viewMode === "unified" ? "#fff" : "transparent",
+                  color: viewMode === "unified" ? "#111c14" : "#5a6b5e",
+                  boxShadow:
+                    viewMode === "unified" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                }}
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  className="w-3.5 h-3.5"
+                >
+                  <rect x="2" y="2" width="5" height="12" rx="1" />
+                  <rect x="9" y="2" width="5" height="12" rx="1" />
+                </svg>
+                Unified Cycle
+              </button>
+            </div>
             <GhostButton onClick={() => reload()}>
               <svg
                 viewBox="0 0 24 24"
@@ -1001,152 +1113,368 @@ export default function ProfHistory() {
         />
       )}
 
-      <StatGrid className="mb-4">
-        {[
-          ["Total Filed", loading ? "—" : String(records.length)],
-          ["Approved", loading ? "—" : String(approvedCount)],
-          ["Pending", loading ? "—" : String(pendingCount)],
-          ["Rejected", loading ? "—" : String(rejectedCount)],
-        ].map(([l, v]) => (
-          <StatCard key={l} label={l} value={v} />
-        ))}
-      </StatGrid>
-
-      <Card className="p-0 overflow-x-auto">
-        <div
-          className="flex items-center justify-between p-4 border-b"
-          style={{ borderColor: "#eef1ef" }}
-        >
-          <Tabs tabs={tabs} value={tab} onChange={setTab} />
-          <SearchInput
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search records by period, reference..."
-          />
-        </div>
-        <div
-          className="grid min-w-[760px] grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] px-5 py-2.5 text-[11px] uppercase tracking-wide font-semibold"
-          style={{ color: "#b6c3ba", background: "#fafbfa" }}
-        >
-          <span>Type</span>
-          <span>Period</span>
-          <span>Units</span>
-          <span>Stage</span>
-          <span>Submitted</span>
-          <span className="text-right">Status</span>
-        </div>
-        {rows.length === 0 ? (
-          <div className="py-14 text-center text-[#8fa394] text-[13px]">
-            {loading
-              ? "Loading submissions..."
-              : "No submission records found."}
+      {viewMode === "unified" && (
+        <div className="space-y-4 mb-4">
+          {/* Summary Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: "Total Cycles", value: unifiedStats.total, color: "#111c14" },
+              { label: "Payroll Ready", value: unifiedStats.ready, color: "#2f7043" },
+              { label: "Pending Review", value: unifiedStats.pending, color: "#996515" },
+              { label: "Blocked", value: unifiedStats.blocked, color: "#c0392b" },
+            ].map((s) => (
+              <Card key={s.label} className="p-3.5 text-center">
+                <p className="text-[22px] font-bold tabular-nums" style={{ color: s.color }}>
+                  {s.value}
+                </p>
+                <p className="text-[11.5px] font-medium mt-0.5" style={{ color: "#8fa394" }}>
+                  {s.label}
+                </p>
+              </Card>
+            ))}
           </div>
-        ) : (
-          rows.map((r, i) => (
-            <div
-              key={r.id || i}
-              role="button"
-              tabIndex={0}
-              onClick={() => setSelected({ row: r, idx: i })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setSelected({ row: r, idx: i });
+
+          <div className="flex items-center gap-2 mb-1">
+            <SearchInput
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search cycles by period, reference..."
+              className="w-72"
+            />
+          </div>
+
+          {unifiedGroups.length === 0 ? (
+            <Card className="py-12 text-center">
+              <p className="text-[13px]" style={{ color: "#8fa394" }}>
+                {searchQuery ? "No matching pay cycles found." : "No submission records filed yet."}
+              </p>
+            </Card>
+          ) : (
+            unifiedGroups.map((group, gi) => {
+              const readinessColor =
+                group.readiness === "ready"
+                  ? "#2f7043"
+                  : group.readiness === "blocked"
+                    ? "#c0392b"
+                    : "#996515";
+              const readinessBg =
+                group.readiness === "ready"
+                  ? "#eaf4ee"
+                  : group.readiness === "blocked"
+                    ? "#fbecec"
+                    : "#fbf1de";
+              const readinessLabel =
+                group.readiness === "ready"
+                  ? "Payroll Ready"
+                  : group.readiness === "blocked"
+                    ? "Blocked"
+                    : "Pending Review";
+              const readinessIcon =
+                group.readiness === "ready"
+                  ? "M5 13l4 4L19 7"
+                  : group.readiness === "blocked"
+                    ? "M6 6l12 12M18 6L6 18"
+                    : "M12 7v5l3 2";
+
+              const renderSide = (item: HistoryRecord | null, kind: "AR" | "DTR") => {
+                if (!item) {
+                  const submitPath = kind === "AR" ? "/prof/submit" : "/prof/dtr-submit";
+                  return (
+                    <div
+                      className="flex-1 rounded-xl border-2 border-dashed p-4 flex flex-col items-center justify-center gap-2 min-h-[120px]"
+                      style={{ borderColor: "#e2e8e4" }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#b6c3ba" strokeWidth="1.6" className="w-5 h-5">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M9 12h6M12 9v6" strokeLinecap="round" />
+                      </svg>
+                      <p className="text-[12px] font-medium" style={{ color: "#8fa394" }}>
+                        No {kind} submitted for this cycle
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => navigate(submitPath)}
+                        className="px-3 py-1 rounded-lg text-[11.5px] font-semibold text-white transition-transform active:scale-98 cursor-pointer"
+                        style={{ background: kind === "AR" ? "#3f8ecc" : BRAND }}
+                      >
+                        Submit {kind}
+                      </button>
+                    </div>
+                  );
                 }
-              }}
-              title="View submission detail"
-              className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer select-none"
-              style={{ borderColor: "#f2f4f2" }}
+
+                const isRejected = item.status === "Rejected" || item.status === "Disapproved";
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelected({ row: item, idx: gi })}
+                    className="flex-1 rounded-xl border p-4 text-left transition-all hover:shadow-md cursor-pointer min-h-[120px] flex flex-col justify-between"
+                    style={{
+                      borderColor:
+                        item.status === "Approved"
+                          ? "#cfe6d8"
+                          : isRejected
+                            ? "#f0cfcb"
+                            : "#e8eeea",
+                      background: "#fff",
+                    }}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <Badge tone={kind === "AR" ? "blue" : "green"}>{kind}</Badge>
+                        <Badge tone={statusTone[item.status]} dot>
+                          {item.status}
+                        </Badge>
+                      </div>
+                      <p className="text-[13px] font-semibold" style={{ color: "#111c14" }}>
+                        {item.units || (kind === "AR" ? "Teaching Load" : "Biometric Punches")}
+                      </p>
+                      <p className="text-[11px] truncate mt-0.5" style={{ color: "#8fa394" }}>
+                        Ref {item.record?.reference || item.id || "—"}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t" style={{ borderColor: "#f4f6f5" }}>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{
+                            background:
+                              item.stage === "Accounting"
+                                ? "#2f7043"
+                                : item.stage === "HR"
+                                  ? "#b45309"
+                                  : item.stage === "Secretary"
+                                    ? "#1d4ed8"
+                                    : "#8fa394",
+                          }}
+                        />
+                        <span className="text-[11.5px] font-medium truncate" style={{ color: "#5a6b5e" }}>
+                          {item.stage || "Checker"}
+                        </span>
+                        <span className="text-[10.5px] truncate" style={{ color: "#b6c3ba" }}>
+                          · {formatManilaTimestamp(item.submitted)}
+                        </span>
+                      </div>
+                      {isRejected && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRevise(item);
+                          }}
+                          className="px-2 py-0.5 rounded-md text-[11px] font-bold text-white shadow-2xs hover:opacity-90 flex items-center gap-1 shrink-0 cursor-pointer"
+                          style={{ background: "#c0392b" }}
+                          title="Edit and resubmit changes"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className="w-3 h-3"
+                          >
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              };
+
+              return (
+                <Card key={`${group.period}-${gi}`} className="p-4">
+                  <div className="flex items-center justify-between gap-3 mb-3.5 flex-wrap">
+                    <div>
+                      <p className="text-[14px] font-bold" style={{ color: "#111c14" }}>
+                        {group.period}
+                      </p>
+                      <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
+                        Pay Cycle Submissions &amp; Readiness
+                      </p>
+                    </div>
+                    <span
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold flex-shrink-0"
+                      style={{ background: readinessBg, color: readinessColor }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+                        {group.readiness === "ready" ? (
+                          <path d={readinessIcon} />
+                        ) : group.readiness === "blocked" ? (
+                          <path d={readinessIcon} />
+                        ) : (
+                          <><circle cx="12" cy="12" r="9" /><path d={readinessIcon} /></>
+                        )}
+                      </svg>
+                      {readinessLabel}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {renderSide(group.ar, "AR")}
+                    {renderSide(group.dtr, "DTR")}
+                  </div>
+                </Card>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {viewMode === "separated" && (
+        <>
+          <StatGrid className="mb-4">
+            {[
+              ["Total Filed", loading ? "—" : String(records.length)],
+              ["Approved", loading ? "—" : String(approvedCount)],
+              ["Pending", loading ? "—" : String(pendingCount)],
+              ["Rejected", loading ? "—" : String(rejectedCount)],
+            ].map(([l, v]) => (
+              <StatCard key={l} label={l} value={v} />
+            ))}
+          </StatGrid>
+
+          <Card className="p-0 overflow-x-auto">
+            <div
+              className="flex items-center justify-between p-4 border-b"
+              style={{ borderColor: "#eef1ef" }}
             >
-              <span
-                className="text-[12px] font-semibold"
-                style={{ color: r.type === "DTR" ? BRAND : "#3f8ecc" }}
-              >
-                {r.type}
-              </span>
-              <span className="text-[13px]" style={{ color: "#3d4a41" }}>
-                {formatArPeriodRange(r.period, r.submitted)}
-              </span>
-              <span
-                className="text-[13px] tabular-nums"
-                style={{ color: "#8fa394" }}
-              >
-                {r.units}
-              </span>
-              <span className="text-[12px]">
-                <span
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium text-[11.5px]"
-                  style={{
-                    background:
-                      r.stage === "Accounting"
-                        ? "#eaf4ee"
-                        : r.stage === "HR"
-                          ? "#fdf3e7"
-                          : r.stage === "Secretary"
-                            ? "#eef3fb"
-                            : "#f3f5f3",
-                    color:
-                      r.stage === "Accounting"
-                        ? "#2f7043"
-                        : r.stage === "HR"
-                          ? "#b45309"
-                          : r.stage === "Secretary"
-                            ? "#1d4ed8"
-                            : "#5a6b5e",
+              <Tabs tabs={tabs} value={tab} onChange={setTab} />
+              <SearchInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search records by period, reference..."
+              />
+            </div>
+            <div
+              className="grid min-w-[760px] grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] px-5 py-2.5 text-[11px] uppercase tracking-wide font-semibold"
+              style={{ color: "#b6c3ba", background: "#fafbfa" }}
+            >
+              <span>Type</span>
+              <span>Period</span>
+              <span>Units</span>
+              <span>Stage</span>
+              <span>Submitted</span>
+              <span className="text-right">Status</span>
+            </div>
+            {rows.length === 0 ? (
+              <div className="py-14 text-center text-[#8fa394] text-[13px]">
+                {loading
+                  ? "Loading submissions..."
+                  : "No submission records found."}
+              </div>
+            ) : (
+              rows.map((r, i) => (
+                <div
+                  key={r.id || i}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelected({ row: r, idx: i })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelected({ row: r, idx: i });
+                    }
                   }}
+                  title="View submission detail"
+                  className="grid min-w-[760px] w-full text-left grid-cols-[0.7fr_1.2fr_1.1fr_1.1fr_1.4fr_1fr] items-center px-5 py-3 border-t transition-colors hover:bg-[#fafbfa] cursor-pointer select-none"
+                  style={{ borderColor: "#f2f4f2" }}
                 >
                   <span
-                    className="w-1.5 h-1.5 rounded-full"
-                    style={{
-                      background:
-                        r.stage === "Accounting"
-                          ? "#2f7043"
-                          : r.stage === "HR"
-                            ? "#b45309"
-                            : r.stage === "Secretary"
-                              ? "#1d4ed8"
-                              : "#8fa394",
-                    }}
-                  />
-                  {r.stage || "Checker"}
-                </span>
-              </span>
-              <span className="text-[13px]" style={{ color: "#8fa394" }}>
-                {formatManilaTimestamp(r.submitted)}
-              </span>
-              <span className="flex items-center justify-end gap-2">
-                <Badge tone={statusTone[r.status]} dot>
-                  {r.status}
-                </Badge>
-                {(r.status === "Rejected" || r.status === "Disapproved") && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRevise(r);
-                    }}
-                    className="px-2 py-0.5 rounded-md text-[11px] font-bold text-white shadow-2xs hover:opacity-90 flex items-center gap-1 cursor-pointer"
-                    style={{ background: "#c0392b" }}
-                    title="Edit and resubmit changes"
+                    className="text-[12px] font-semibold"
+                    style={{ color: r.type === "DTR" ? BRAND : "#3f8ecc" }}
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="w-3 h-3"
+                    {r.type}
+                  </span>
+                  <span className="text-[13px]" style={{ color: "#3d4a41" }}>
+                    {formatArPeriodRange(r.period, r.submitted)}
+                  </span>
+                  <span
+                    className="text-[13px] tabular-nums"
+                    style={{ color: "#8fa394" }}
+                  >
+                    {r.units}
+                  </span>
+                  <span className="text-[12px]">
+                    <span
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium text-[11.5px]"
+                      style={{
+                        background:
+                          r.stage === "Accounting"
+                            ? "#eaf4ee"
+                            : r.stage === "HR"
+                              ? "#fdf3e7"
+                              : r.stage === "Secretary"
+                                ? "#eef3fb"
+                                : "#f3f5f3",
+                        color:
+                          r.stage === "Accounting"
+                            ? "#2f7043"
+                            : r.stage === "HR"
+                              ? "#b45309"
+                              : r.stage === "Secretary"
+                                ? "#1d4ed8"
+                                : "#5a6b5e",
+                      }}
                     >
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                    Edit
-                  </button>
-                )}
-              </span>
-            </div>
-          ))
-        )}
-      </Card>
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{
+                          background:
+                            r.stage === "Accounting"
+                              ? "#2f7043"
+                              : r.stage === "HR"
+                                ? "#b45309"
+                                : r.stage === "Secretary"
+                                  ? "#1d4ed8"
+                                  : "#8fa394",
+                        }}
+                      />
+                      {r.stage || "Checker"}
+                    </span>
+                  </span>
+                  <span className="text-[13px]" style={{ color: "#8fa394" }}>
+                    {formatManilaTimestamp(r.submitted)}
+                  </span>
+                  <span className="flex items-center justify-end gap-2">
+                    <Badge tone={statusTone[r.status]} dot>
+                      {r.status}
+                    </Badge>
+                    {(r.status === "Rejected" || r.status === "Disapproved") && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRevise(r);
+                        }}
+                        className="px-2 py-0.5 rounded-md text-[11px] font-bold text-white shadow-2xs hover:opacity-90 flex items-center gap-1 cursor-pointer"
+                        style={{ background: "#c0392b" }}
+                        title="Edit and resubmit changes"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="w-3 h-3"
+                        >
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                        Edit
+                      </button>
+                    )}
+                  </span>
+                </div>
+              ))
+            )}
+          </Card>
+        </>
+      )}
 
       <Modal
         isOpen={!!selected}

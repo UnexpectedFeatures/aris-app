@@ -33,8 +33,9 @@ const MONTH_NAMES = [
   "December",
 ];
 
+type PeriodCycle = "I" | "II" | "Full";
 type ManilaDateParts = { year: number; month: number; day: number };
-type PeriodParts = { month: number; year: number; half?: "I" | "II" };
+type PeriodParts = { month: number; year: number; half?: PeriodCycle };
 
 function getManilaDateParts(value: string | Date): ManilaDateParts | null {
   if (typeof value === "string") {
@@ -78,7 +79,7 @@ function getManilaDateParts(value: string | Date): ManilaDateParts | null {
 
 function parsePeriodLabel(value: string, defaultYear?: number): PeriodParts | null {
   const match = value.match(
-    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II))?(?:\s+\([^)]*\))?$/i,
+    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II|Full|Whole))?(?:\s+\((?:Whole|Full)\s+Month\))?(?:\s+(?:Whole|Full)\s+Month)?(?:\s+\([^)]*\))?$/i,
   );
   if (!match) return null;
   const month = MONTH_NAMES.findIndex(
@@ -89,15 +90,49 @@ function parsePeriodLabel(value: string, defaultYear?: number): PeriodParts | nu
     ? Number(match[2])
     : defaultYear ?? getManilaDateParts(new Date())?.year;
   if (!year) return null;
+
+  let half: PeriodCycle | undefined = undefined;
+  const rawHalf = (match[3] || "").toLowerCase();
+  const lowerVal = value.toLowerCase();
+  if (rawHalf === "i") {
+    half = "I";
+  } else if (rawHalf === "ii") {
+    half = "II";
+  } else if (
+    rawHalf === "full" ||
+    rawHalf === "whole" ||
+    lowerVal.includes("full") ||
+    lowerVal.includes("whole")
+  ) {
+    half = "Full";
+  }
+
   return {
     month: month + 1,
     year,
-    half: match[3]?.toUpperCase() as "I" | "II" | undefined,
+    half,
   };
 }
 
-function toPeriodLabel(parts: PeriodParts, half: "I" | "II" = "I") {
+function toPeriodLabel(parts: PeriodParts, half: PeriodCycle = "I") {
+  if (half === "Full") {
+    return `${MONTH_NAMES[parts.month - 1]} ${parts.year} Full Month`;
+  }
   return `${MONTH_NAMES[parts.month - 1]} ${parts.year} ${half}`;
+}
+
+function isDateInPeriod(
+  dateParts: ManilaDateParts,
+  targetPeriod: PeriodParts,
+): boolean {
+  if (
+    dateParts.year !== targetPeriod.year ||
+    dateParts.month !== targetPeriod.month
+  ) {
+    return false;
+  }
+  if (!targetPeriod.half || targetPeriod.half === "Full") return true;
+  return targetPeriod.half === "I" ? dateParts.day <= 15 : dateParts.day >= 16;
 }
 
 function currentMonthName() {
@@ -282,7 +317,7 @@ function normalizePeriodLabel(value: string, defaultYear?: number) {
 
 function getPeriodTextMatch(value: string): PeriodParts | null {
   const match = value.match(
-    /\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?(?:\s+(I|II))?(?:\s+\(Whole Month\))?/i,
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?(?:\s+(I|II|Full|Whole))?(?:\s+\((?:Whole|Full)\s+Month\))?(?:\s+(?:Whole|Full)\s+Month)?/i,
   );
   return match ? parsePeriodLabel(match[0]) : null;
 }
@@ -295,6 +330,9 @@ function getHeldDates(value: string) {
 }
 
 function formatHeldDate(date: string) {
+  if (!date || typeof date !== "string" || !date.includes("-")) {
+    return date || "";
+  }
   const [year, month, day] = date.split("-");
   return `${month}/${day}/${year}`;
 }
@@ -506,15 +544,28 @@ export default function ProfSubmit() {
   const loadAvailableMonths = async () => {
     try {
       const monthSet = new Set<string>();
+      let mostRecentMeetingPeriod: string | null = null;
+      let mostRecentMeetingTime = 0;
 
       // 1. Gather months from meeting data
       try {
         const meetings = await fetchMeetingsFromDb(user?.email);
         meetings.forEach((m) => {
-          if (m.meeting_date) {
-            const parts = getManilaDateParts(m.meeting_date);
+          const rawDate = m.meeting_date || m.started_at || m.created_at;
+          if (rawDate) {
+            const parts = getManilaDateParts(rawDate);
             if (parts) {
               monthSet.add(`${parts.year}-${parts.month}`);
+              const time = new Date(
+                Date.UTC(parts.year, parts.month - 1, parts.day),
+              ).getTime();
+              if (time > mostRecentMeetingTime) {
+                mostRecentMeetingTime = time;
+                mostRecentMeetingPeriod = toPeriodLabel(
+                  parts,
+                  parts.day <= 15 ? "I" : "II",
+                );
+              }
             }
           }
         });
@@ -524,10 +575,10 @@ export default function ProfSubmit() {
 
       // 2. Gather months from existing AR submissions
       try {
-        const arRecords = await loadResource(
-          "/professor/accomplishment-reports",
-          [],
-        );
+        const arEndpoint = user?.email
+          ? `/professor/accomplishment-reports?email=${encodeURIComponent(user.email)}`
+          : "/professor/accomplishment-reports";
+        const arRecords = await loadResource(arEndpoint, []);
         const records = Array.isArray(arRecords) ? arRecords : [];
         records.forEach((r: any) => {
           const p = r?.period || r?.record?.period;
@@ -559,15 +610,25 @@ export default function ProfSubmit() {
         .flatMap(([year, month]) => [
           toPeriodLabel({ year, month }, "I"),
           toPeriodLabel({ year, month }, "II"),
+          toPeriodLabel({ year, month }, "Full"),
         ]);
       setAvailablePeriods(periods);
 
       const currentPeriod = normalizePeriodLabel(period);
-      setPeriod(
-        periods.includes(currentPeriod)
-          ? currentPeriod
-          : currentMonthName() || periods[0] || "",
-      );
+      const defaultPeriod =
+        mostRecentMeetingPeriod && periods.includes(mostRecentMeetingPeriod)
+          ? mostRecentMeetingPeriod
+          : currentMonthName();
+
+      setPeriod((prev) => {
+        if (reviseSubmission?.period || reviseSubmission?.record?.period) {
+          return currentPeriod;
+        }
+        if (prev && periods.includes(prev) && prev !== currentMonthName()) {
+          return prev;
+        }
+        return defaultPeriod || periods[0] || "";
+      });
     } catch {
       setAvailablePeriods([]);
     } finally {
@@ -581,42 +642,66 @@ export default function ProfSubmit() {
 
   const lastAutoFilledMonth = useRef<string | null>(null);
 
-  // Auto-fill courses from Google Meet data when the selected half-month changes.
+  // Auto-fill courses from Google Meet data when the selected period changes.
   useEffect(() => {
     if (monthsLoading || !period) return;
     const selectedPeriod = parsePeriodLabel(period);
-    if (!selectedPeriod?.half) return;
+    if (!selectedPeriod) return;
+
+    if (
+      isRevision &&
+      reviseSubmission?.period &&
+      normalizePeriodLabel(reviseSubmission.period) ===
+        normalizePeriodLabel(period)
+    ) {
+      return;
+    }
 
     const runAutoFill = async () => {
       try {
         const meetings = await fetchMeetingsFromDb(user?.email);
 
         const filtered = meetings.filter((m) => {
-          if (!m.meeting_date) return false;
-          const date = getManilaDateParts(m.meeting_date);
+          const rawDate = m.meeting_date || m.started_at || m.created_at;
+          if (!rawDate) return false;
+          const date = getManilaDateParts(rawDate);
           if (!date) return false;
-          return (
-            date.year === selectedPeriod.year &&
-            date.month === selectedPeriod.month &&
-            (selectedPeriod.half === "I" ? date.day <= 15 : date.day >= 16)
-          );
+          return isDateInPeriod(date, selectedPeriod);
         });
 
-        if (filtered.length === 0) return;
+        if (filtered.length === 0) {
+          if (!isRevision) {
+            setCourses([]);
+          }
+          return;
+        }
 
         // Convert SavedMeetingRecord[] → MeetTeachingLoadAutofill[]
         const autofillItems: MeetTeachingLoadAutofill[] = filtered.map((m) => {
-          const parsed = parseCourseString(m.course ?? "", availableCourses);
-          const dateParts = getManilaDateParts(m.meeting_date);
+          const courseRaw = m.course || m.name || "";
+          const parsed = parseCourseString(courseRaw, availableCourses);
+          const rawDate = m.meeting_date || m.started_at || m.created_at || "";
+          const dateParts = getManilaDateParts(rawDate);
           const meetingDate = dateParts
             ? new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day))
             : new Date(Number.NaN);
-          const startTime = m.start_time ? formatMeetingClock(m.start_time) : "";
-          const endTime = m.end_time ? formatMeetingClock(m.end_time) : "";
+          const meetDateStr = dateParts
+            ? `${dateParts.year}-${String(dateParts.month).padStart(2, "0")}-${String(dateParts.day).padStart(2, "0")}`
+            : "";
+          let startTime = m.start_time ? formatMeetingClock(m.start_time) : "";
+          let endTime = m.end_time ? formatMeetingClock(m.end_time) : "";
+          if (!startTime && m.started_at) {
+            const sDate = new Date(m.started_at);
+            if (!isNaN(sDate.getTime())) startTime = formatTime12(sDate);
+          }
+          if (!endTime && m.ended_at) {
+            const eDate = new Date(m.ended_at);
+            if (!isNaN(eDate.getTime())) endTime = formatTime12(eDate);
+          }
           let meetingTime = "";
           if (startTime && endTime) {
             meetingTime = `${startTime} – ${endTime}`;
-          } else if (m.start_time) {
+          } else if (startTime) {
             meetingTime = startTime;
           }
 
@@ -629,7 +714,7 @@ export default function ProfSubmit() {
             courseTitle: parsed.courseTitle,
             section: parsed.section,
             units: parsed.units,
-            meetingDate: m.meeting_date,
+            meetingDate: meetDateStr || m.meeting_date,
             meetingDay: getDayAbbrev(meetingDate),
             meetingTime,
             meetingCode: m.meeting_code || `MEET-${m.id}`,
@@ -641,7 +726,7 @@ export default function ProfSubmit() {
           };
         });
 
-        applyMeetAutofill(autofillItems);
+        applyMeetAutofill(autofillItems, true);
         lastAutoFilledMonth.current = period;
       } catch (err) {
         console.warn("Auto-fill from Meet failed:", err);
@@ -765,15 +850,41 @@ export default function ProfSubmit() {
   const [isSyncingMeet, setIsSyncingMeet] = useState(false);
 
   // Core handler to apply autofilled info from Google Meet to Teaching Load courses
-  const applyMeetAutofill = (items: MeetTeachingLoadAutofill[]) => {
-    if (!items || items.length === 0) return;
+  const applyMeetAutofill = (
+    items: MeetTeachingLoadAutofill[],
+    replace = false,
+  ) => {
+    const selectedPeriod = parsePeriodLabel(period);
+
+    // Strictly filter items to only those belonging to the selected period / month
+    const validItems = selectedPeriod
+      ? (items || []).filter((item) => {
+          if (!item.meetingDate) return false;
+          const parts = getManilaDateParts(item.meetingDate);
+          return parts ? isDateInPeriod(parts, selectedPeriod) : false;
+        })
+      : items || [];
+
+    if (validItems.length === 0) {
+      if (replace && !isRevision) {
+        setCourses([]);
+      }
+      return;
+    }
 
     setCourses((prevCourses) => {
-      const updated = [...prevCourses];
+      const updated = replace ? [] : [...prevCourses];
 
-      for (const item of items) {
-        const itemTopicUpper = (item.topics || `${item.courseCode} ONLINE CLASS LECTURE & DISCUSSION`).trim().toUpperCase();
-        const itemTaskFormatted = item.tasks && !item.tasks.includes("Room:") ? item.tasks : "Lecture and Discussion, Activity";
+      for (const item of validItems) {
+        const itemTopicUpper = (
+          item.topics || `${item.courseCode} ONLINE CLASS LECTURE & DISCUSSION`
+        )
+          .trim()
+          .toUpperCase();
+        const itemTaskFormatted =
+          item.tasks && !item.tasks.includes("Room:")
+            ? item.tasks
+            : "Lecture and Discussion, Activity";
 
         const existingIdx = updated.findIndex(
           (c) =>
@@ -783,12 +894,19 @@ export default function ProfSubmit() {
 
         if (existingIdx >= 0) {
           const ex = updated[existingIdx];
-          // 1. Add held date (ignore dummy initial dates if they were default)
-          const isDummyDates = ex.datesHeld === "2026-08-21,2026-08-23,2026-08-30";
-          const dates = isDummyDates ? [] : getHeldDates(ex.datesHeld);
-          const newDates = dates.includes(item.meetingDate)
-            ? dates
-            : [...dates, item.meetingDate].sort();
+          const isDummyDates =
+            ex.datesHeld === "2026-08-21,2026-08-23,2026-08-30";
+          // Only keep dates belonging to the selected period
+          const currentDates = isDummyDates
+            ? []
+            : getHeldDates(ex.datesHeld).filter((d) => {
+                if (!selectedPeriod) return true;
+                const p = getManilaDateParts(d);
+                return p ? isDateInPeriod(p, selectedPeriod) : true;
+              });
+          const newDates = currentDates.includes(item.meetingDate)
+            ? currentDates
+            : [...currentDates, item.meetingDate].sort();
 
           // 2. Topics Discussed (Must be uppercase to follow Photo Format)
           let nextTopics = ex.topics;
@@ -798,9 +916,7 @@ export default function ProfSubmit() {
             nextTopics === "DESIGNING LOG IN MODAL"
           ) {
             nextTopics = itemTopicUpper;
-          } else if (
-            !nextTopics.toUpperCase().includes(itemTopicUpper)
-          ) {
+          } else if (!nextTopics.toUpperCase().includes(itemTopicUpper)) {
             nextTopics = `${nextTopics} · ${itemTopicUpper}`;
           }
 
@@ -843,46 +959,95 @@ export default function ProfSubmit() {
             rows[rowIdx] = {
               ...rows[rowIdx],
               code: item.courseCode,
-              section: item.section,
+              section: item.section || rows[rowIdx].section,
               units: item.units || rows[rowIdx].units,
               days: targetDays,
-              time: formattedTime,
+              time: formattedTime || rows[rowIdx].time,
               campus: rows[rowIdx].campus || item.campus || "CONGRESS",
             };
           } else {
             rows.push({
               id: `row_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
               code: item.courseCode,
-              section: item.section,
-              units: item.units,
-              days: item.meetingDay,
+              section: item.section || "",
+              units: item.units || 3,
+              days: item.meetingDay || "MON",
               time: item.meetingTime,
               campus: item.campus || "CONGRESS",
             });
           }
 
+          const matchingDbCourse = availableCourses.find(
+            (c) =>
+              c.code.trim().toUpperCase() ===
+              item.courseCode.trim().toUpperCase(),
+          );
+          const nextTitle =
+            ex.title && !ex.title.endsWith("ONLINE COURSE")
+              ? ex.title
+              : matchingDbCourse?.title || item.courseTitle || ex.title;
+
           updated[existingIdx] = {
             ...ex,
+            title: nextTitle,
             datesHeld: newDates.join(","),
             topics: nextTopics,
             tasks: nextTasks,
             rows,
           };
+        } else {
+          // ── Create new CourseBlock for this course ──
+          const matchingDbCourse = availableCourses.find(
+            (c) =>
+              c.code.trim().toUpperCase() ===
+              item.courseCode.trim().toUpperCase(),
+          );
+
+          const courseUnits = item.units || matchingDbCourse?.units || 3;
+          const courseTitle =
+            item.courseTitle ||
+            matchingDbCourse?.title ||
+            `${item.courseCode} ONLINE COURSE`;
+
+          const rowId = `row_meet_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          const newRow: ClassScheduleRow = {
+            id: rowId,
+            code: item.courseCode,
+            section: item.section || "",
+            units: courseUnits,
+            days: item.meetingDay || "MON",
+            time: item.meetingTime,
+            campus: item.campus || "CONGRESS",
+          };
+
+          const newCourseBlock: CourseBlock = {
+            id: `course_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            courseId: matchingDbCourse?.id,
+            code: item.courseCode,
+            title: courseTitle,
+            units: courseUnits,
+            datesHeld: item.meetingDate || "",
+            topics: itemTopicUpper,
+            tasks: itemTaskFormatted,
+            rows: [newRow],
+          };
+
+          updated.push(newCourseBlock);
         }
       }
 
       return updated;
     });
 
-    const last = items[items.length - 1];
+    const last = validItems[validItems.length - 1];
     setAutofillBanner({
       courseCode: last.courseCode,
-      message: "Google Meet data synced",
-      details: `${last.courseCode} (${last.courseTitle}) — Held on ${formatHeldDate(last.meetingDate)} at ${last.meetingTime}. Courses not already in this report are not added automatically.`,
+      message: `Google Meet data synced (${period})`,
+      details: `${validItems.length} session${validItems.length === 1 ? "" : "s"} auto-filled for ${period}.`,
     });
 
     clearPendingMeetTeachingLoadAutofills(user?.email || user?.id);
-    recordAppliedMeetAutofills(items, user?.email || user?.id);
+    recordAppliedMeetAutofills(validItems, user?.email || user?.id);
   };
 
   // Real-time listener & initial check for Google Meet autofills (scoped to authenticated professor)
@@ -890,6 +1055,18 @@ export default function ProfSubmit() {
     const userKey = user?.email || user?.id;
     const pending = getPendingMeetTeachingLoadAutofills(userKey);
     if (pending && pending.length > 0) {
+      const first = pending[0];
+      const rawDate = first.meetingDate || first.createdAt;
+      if (rawDate) {
+        const parts = getManilaDateParts(rawDate);
+        if (parts) {
+          const targetPeriod = toPeriodLabel(
+            parts,
+            parts.day <= 15 ? "I" : "II",
+          );
+          setPeriod(targetPeriod);
+        }
+      }
       applyMeetAutofill(pending);
     }
 
@@ -904,6 +1081,17 @@ export default function ProfSubmit() {
           evtDetail.userEmail.toLowerCase().trim() ===
             user.email.toLowerCase().trim()
         ) {
+          const rawDate = evtDetail.meetingDate || evtDetail.createdAt;
+          if (rawDate) {
+            const parts = getManilaDateParts(rawDate);
+            if (parts) {
+              const targetPeriod = toPeriodLabel(
+                parts,
+                parts.day <= 15 ? "I" : "II",
+              );
+              setPeriod(targetPeriod);
+            }
+          }
           applyMeetAutofill([evtDetail]);
         }
       }
@@ -915,96 +1103,138 @@ export default function ProfSubmit() {
     };
   }, [user?.email, user?.id]);
 
-  // Manual sync button to pull recent completed Google Meet session into teaching load
+  // Manual sync button to pull recent completed Google Meet session into teaching load for the selected period
   const handleSyncFromGoogleMeet = async () => {
     setIsSyncingMeet(true);
     try {
-      const userKey = user?.email || user?.id;
-      // 1. Check pending in localStorage scoped to this professor
-      const pending = getPendingMeetTeachingLoadAutofills(userKey);
-      if (pending.length > 0) {
-        applyMeetAutofill(pending);
+      const selectedPeriod = parsePeriodLabel(period);
+      if (!selectedPeriod) {
         setIsSyncingMeet(false);
         return;
       }
 
-      // 2. Fetch completed meetings from DB scoped to this professor
+      const userKey = user?.email || user?.id;
+      // 1. Check pending in localStorage scoped to this professor and filter for selectedPeriod
+      const pending = getPendingMeetTeachingLoadAutofills(userKey);
+      const pendingForPeriod = pending.filter((item) => {
+        const rawDate = item.meetingDate || item.createdAt;
+        if (!rawDate) return false;
+        const date = getManilaDateParts(rawDate);
+        return date ? isDateInPeriod(date, selectedPeriod) : false;
+      });
+
+      // 2. Fetch completed meetings from DB scoped to this professor and filter for selectedPeriod
       const dbMeetings = await fetchMeetingsFromDb(user?.email);
       const userEmailLower = (user?.email || "").toLowerCase().trim();
-      const completed = (dbMeetings || []).filter((m) => {
+      const completedForPeriod = (dbMeetings || []).filter((m) => {
         const isFinished =
           m.status === "completed" || m.status === "summarized";
         if (!isFinished) return false;
         // Verify owner if professor_id or email is present on the record
-        if (m.professor_id && user?.id && m.professor_id === user.id)
-          return true;
-        if (
-          (m as any).professor_email &&
-          (m as any).professor_email.toLowerCase().trim() === userEmailLower
-        )
-          return true;
-        // If no owner metadata was attached on older rows, allow matching
-        return !m.professor_id;
+        const matchesOwner =
+          (m.professor_id && user?.id && m.professor_id === user.id) ||
+          ((m as any).professor_email &&
+            (m as any).professor_email.toLowerCase().trim() ===
+              userEmailLower) ||
+          !m.professor_id;
+        if (!matchesOwner) return false;
+
+        const rawDate = m.meeting_date || m.started_at || m.created_at;
+        if (!rawDate) return false;
+        const date = getManilaDateParts(rawDate);
+        return date ? isDateInPeriod(date, selectedPeriod) : false;
       });
 
-      if (completed.length === 0) {
+      // Convert DB meetings into MeetTeachingLoadAutofill
+      const dbAutofillItems: MeetTeachingLoadAutofill[] = completedForPeriod.map(
+        (m) => {
+          const courseRaw = m.course || m.name || "";
+          const parsed = parseCourseString(courseRaw, availableCourses);
+          const rawDate =
+            m.meeting_date || m.started_at || m.created_at || "";
+          const dateParts = getManilaDateParts(rawDate);
+          const meetingDate = dateParts
+            ? new Date(
+                Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day),
+              )
+            : new Date(Number.NaN);
+          const meetDateStr = dateParts
+            ? `${dateParts.year}-${String(dateParts.month).padStart(2, "0")}-${String(dateParts.day).padStart(2, "0")}`
+            : "";
+          let startTime = m.start_time
+            ? formatMeetingClock(m.start_time)
+            : "";
+          let endTime = m.end_time ? formatMeetingClock(m.end_time) : "";
+          if (!startTime && m.started_at) {
+            const sDate = new Date(m.started_at);
+            if (!isNaN(sDate.getTime())) startTime = formatTime12(sDate);
+          }
+          if (!endTime && m.ended_at) {
+            const eDate = new Date(m.ended_at);
+            if (!isNaN(eDate.getTime())) endTime = formatTime12(eDate);
+          }
+          let meetingTime = "";
+          if (startTime && endTime) {
+            meetingTime = `${startTime} – ${endTime}`;
+          } else if (startTime) {
+            meetingTime = startTime;
+          }
+          const meetTopic =
+            m.name &&
+            !m.name.startsWith("Instant Class") &&
+            !m.name.startsWith("Meeting (")
+              ? m.name.trim().toUpperCase()
+              : `${parsed.courseCode} ONLINE CLASS LECTURE & DISCUSSION`;
+
+          return {
+            id: m.id,
+            meetingId: m.id,
+            userEmail: user?.email,
+            userId: user?.id,
+            courseCode: parsed.courseCode,
+            courseTitle: parsed.courseTitle,
+            section: parsed.section,
+            units: parsed.units,
+            meetingDate: meetDateStr || m.meeting_date,
+            meetingDay: getDayAbbrev(meetingDate),
+            meetingTime,
+            meetingCode: m.meeting_code || `MEET-${m.id}`,
+            durationMinutes: m.duration_minutes ?? 0,
+            topics: m.info || meetTopic,
+            tasks: "Lecture and Discussion, Activity",
+            campus: m.campus || "CONGRESS",
+            createdAt: m.created_at || new Date().toISOString(),
+          };
+        },
+      );
+
+      // Deduplicate pending + db items by meetingCode & meetingDate
+      const allItemsForPeriod = [...pendingForPeriod];
+      for (const item of dbAutofillItems) {
+        const exists = allItemsForPeriod.some(
+          (x) =>
+            x.meetingCode === item.meetingCode &&
+            x.meetingDate === item.meetingDate,
+        );
+        if (!exists) {
+          allItemsForPeriod.push(item);
+        }
+      }
+
+      if (allItemsForPeriod.length === 0) {
         setAutofillBanner({
           courseCode: "INFO",
-          message: "No Recent Google Meet Found",
-          details:
-            "Start and complete a Google Meet session on the Meet page first.",
+          message: `No Google Meet Found for ${period}`,
+          details: `No completed Google Meet sessions were found for ${period}. Only sessions held within this period can be auto-filled.`,
         });
+        if (!isRevision) {
+          setCourses([]);
+        }
         setIsSyncingMeet(false);
         return;
       }
 
-      // Take latest completed meeting
-      const latest = completed[completed.length - 1];
-      const parsed = parseCourseString(
-        latest.course || "CC 105",
-        availableCourses,
-      );
-      const sDate = latest.started_at
-        ? new Date(latest.started_at)
-        : new Date();
-      const eDate = latest.ended_at
-        ? new Date(latest.ended_at)
-        : new Date(sDate.getTime() + (latest.duration_seconds || 3600) * 1000);
-      const meetDate =
-        latest.meeting_date ||
-        (latest.started_at
-          ? String(latest.started_at).split("T")[0]
-          : new Date().toISOString().split("T")[0]);
-      const meetTime =
-        latest.start_time && latest.end_time
-          ? `${latest.start_time} – ${latest.end_time}`
-          : `${formatTime12(sDate)} – ${formatTime12(eDate)}`;
-      const meetDay = getDayAbbrev(sDate);
-      const meetTopic =
-        latest.name &&
-        !latest.name.startsWith("Instant Class") &&
-        !latest.name.startsWith("Meeting (")
-          ? latest.name.trim().toUpperCase()
-          : `${parsed.courseCode} ONLINE CLASS LECTURE & DISCUSSION`;
-
-      const item: MeetTeachingLoadAutofill = {
-        id: latest.id,
-        courseCode: parsed.courseCode,
-        courseTitle: parsed.courseTitle,
-        section: parsed.section,
-        units: parsed.units,
-        meetingDate: meetDate,
-        meetingDay: meetDay,
-        meetingTime: meetTime,
-        meetingCode: latest.meeting_code,
-        durationMinutes: latest.duration_minutes || 60,
-        topics: meetTopic,
-        tasks: "Lecture and Discussion, Activity",
-        campus: "CONGRESS",
-        createdAt: new Date().toISOString(),
-      };
-
-      applyMeetAutofill([item]);
+      applyMeetAutofill(allItemsForPeriod, true);
     } catch (err) {
       console.warn("Sync from Google Meet failed:", err);
     } finally {
