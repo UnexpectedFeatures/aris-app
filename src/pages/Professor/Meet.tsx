@@ -711,7 +711,8 @@ export default function ProfMeet() {
   const handleStartInstant = async () => {
     if (activeCallRef.current || verify.open) return;
 
-      // Fingerprint check disabled - proceed directly to meeting
+    const verifiedAt = await requestVerify("in");
+    if (!verifiedAt) return;
 
     isEndingCallRef.current = false;
     setLiveTranscript([]);
@@ -751,7 +752,8 @@ export default function ProfMeet() {
 
     if (activeCallRef.current || verify.open) return;
 
-      // Fingerprint check disabled - proceed directly to meeting
+    const verifiedAt = await requestVerify("in");
+    if (!verifiedAt) return;
 
     isEndingCallRef.current = false;
     setLiveTranscript([]);
