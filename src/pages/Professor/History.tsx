@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useMemo, type ReactNode } from "react";
+import { useState, useMemo, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "@/app/authContext";
 import { BRAND } from "@/config/navigation";
@@ -701,6 +701,13 @@ export default function ProfHistory() {
     reload,
   } = useResource<AuditApiResponse | AuditLog[]>(`/audit${emailQuery}`, []);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") reload();
+    }, 4000);
+    return () => window.clearInterval(interval);
+  }, [reload]);
+
   const logs: AuditLog[] = useMemo(() => {
     if (Array.isArray(rawData)) return rawData;
     if (rawData && Array.isArray((rawData as AuditApiResponse).logs)) {
@@ -744,7 +751,12 @@ export default function ProfHistory() {
           ? "Flagged"
           : log.result === "Approved"
             ? "Approved"
-            : log.result === "Rejected" || log.result === "Disapproved"
+            : log.result === "Rejected" ||
+                log.result === "Disapproved" ||
+                log.status === "Rejected" ||
+                log.status === "Disapproved" ||
+                log.record?.submissionStatus === "Rejected" ||
+                log.record?.submissionStatus === "Disapproved"
               ? "Rejected"
               : "Pending";
 
@@ -820,12 +832,16 @@ export default function ProfHistory() {
           ).getTime() || 0;
         const timeCurrent =
           new Date(r.record?.reviewedAt || r.submitted).getTime() || 0;
-        // Prefer newer time or pending/approved over rejected
+        // Prefer the newest state. Pending resubmissions replace an older
+        // rejection, while an explicit rejected/disapproved state is preserved.
         if (
           timeCurrent > timeExisting ||
           (r.status === "Pending" &&
             (existing.status === "Rejected" ||
-              existing.status === "Disapproved"))
+              existing.status === "Disapproved")) ||
+          ((r.status === "Rejected" || r.status === "Disapproved") &&
+            existing.status !== "Rejected" &&
+            existing.status !== "Disapproved")
         ) {
           uniqueMap.set(refKey, r);
         }
