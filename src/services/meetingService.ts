@@ -152,6 +152,89 @@ export interface MeetingSummaryItem {
   auth_out?: boolean;
 }
 
+const LLM_BASE = "https://aris-llm.up.railway.app";
+
+export interface AiSummaryResult {
+  question: string;
+  response: string;
+  model?: string;
+}
+
+/**
+ * Posts a meeting transcript as a question to the aris-llm relay server and
+ * waits (via SSE) for the host client to process and return the AI summary.
+ * Resolves with the LLM response string, or rejects after `timeoutMs`.
+ */
+export async function summarizeMeetingWithAI(
+  meeting: MeetingSummaryItem,
+  timeoutMs = 90_000,
+): Promise<AiSummaryResult> {
+  const transcriptText = meeting.transcript
+    .map((l) => `[${l.t}] ${l.who}: ${l.text}`)
+    .join("\n");
+
+  const question =
+    `You are an academic assistant. Summarize the following meeting transcript ` +
+    `from course "${meeting.course}" held on ${meeting.date}.\n\n` +
+    `Provide:\n` +
+    `1. A concise overview (2-3 sentences)\n` +
+    `2. Key discussion points (bullet list)\n` +
+    `3. Decisions made\n` +
+    `4. Action items with owners and due dates if mentioned\n\n` +
+    `Transcript:\n${transcriptText}`;
+
+  // 1. Queue the question
+  const postRes = await fetch(`${LLM_BASE}/api/questions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  if (!postRes.ok) {
+    const err = await postRes.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Failed to queue question");
+  }
+  const { id: questionId } = (await postRes.json()) as { id: string };
+
+  // 2. Listen on SSE stream for a matching response
+  return new Promise<AiSummaryResult>((resolve, reject) => {
+    const es = new EventSource(`${LLM_BASE}/api/responses/stream`);
+    const timer = setTimeout(() => {
+      es.close();
+      reject(new Error("AI summarization timed out. Please try again."));
+    }, timeoutMs);
+
+    es.onmessage = (event: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(event.data) as {
+          questionId?: string;
+          question: string;
+          response: string;
+          model?: string;
+        };
+        // Accept responses that match our questionId OR any new response
+        // (server may not echo questionId through the host client)
+        if (!data.questionId || data.questionId === questionId) {
+          clearTimeout(timer);
+          es.close();
+          resolve({
+            question: data.question,
+            response: data.response,
+            model: data.model,
+          });
+        }
+      } catch {
+        // malformed SSE data – keep waiting
+      }
+    };
+
+    es.onerror = () => {
+      clearTimeout(timer);
+      es.close();
+      reject(new Error("Lost connection to AI server. Please try again."));
+    };
+  });
+}
+
 export async function fetchMeetingSummariesFromDb(): Promise<
   MeetingSummaryItem[]
 > {
