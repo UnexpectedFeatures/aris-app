@@ -95,21 +95,15 @@ export function parseCourseString(
     };
   }
 
-  // 3. Fallback for consultations or general sessions
-  if (trimmed.toLowerCase().includes("consult") || trimmed.toLowerCase().includes("general")) {
-    return {
-      courseCode: "CC 105",
-      courseTitle: "INFORMATION MANAGEMENT",
-      section: "",
-      units: 3,
-    };
-  }
+  // 3. Dynamic fallback: extract what we can from the course string without hardcoding specific courses
+  const firstWord = trimmed.split(/[\s·–-]+/)[0]?.toUpperCase() || "";
+  const fallbackCode = /^[A-Z0-9]{2,6}$/i.test(firstWord) ? firstWord : "";
 
   return {
-    courseCode: "CC 116",
-    courseTitle: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
+    courseCode: fallbackCode,
+    courseTitle: trimmed ? trimmed.toUpperCase() : "ONLINE SESSION",
     section: "",
-    units: 5,
+    units: 3,
   };
 }
 

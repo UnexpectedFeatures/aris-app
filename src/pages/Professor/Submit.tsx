@@ -567,7 +567,7 @@ export default function ProfSubmit() {
     reviseSubmission?.record?.facultyNumber || "",
   );
   const [college, setCollege] = useState(
-    reviseSubmission?.record?.college || "COLLEGE OF LIBERAL ARTS AND SCIENCES",
+    reviseSubmission?.record?.college || (user as any)?.department || "",
   );
 
   // Database courses state
@@ -933,27 +933,19 @@ export default function ProfSubmit() {
 
         if (existingIdx >= 0) {
           const ex = updated[existingIdx];
-          const isDummyDates =
-            ex.datesHeld === "2026-08-21,2026-08-23,2026-08-30";
           // Only keep dates belonging to the selected period
-          const currentDates = isDummyDates
-            ? []
-            : getHeldDates(ex.datesHeld).filter((d) => {
-                if (!selectedPeriod) return true;
-                const p = getManilaDateParts(d);
-                return p ? isDateInPeriod(p, selectedPeriod) : true;
-              });
+          const currentDates = getHeldDates(ex.datesHeld).filter((d) => {
+            if (!selectedPeriod) return true;
+            const p = getManilaDateParts(d);
+            return p ? isDateInPeriod(p, selectedPeriod) : true;
+          });
           const newDates = currentDates.includes(item.meetingDate)
             ? currentDates
             : [...currentDates, item.meetingDate].sort();
 
           // 2. Topics Discussed (Must be uppercase to follow Photo Format)
           let nextTopics = ex.topics;
-          if (
-            !nextTopics ||
-            nextTopics.trim() === "" ||
-            nextTopics === "DESIGNING LOG IN MODAL"
-          ) {
+          if (!nextTopics || nextTopics.trim() === "") {
             nextTopics = itemTopicUpper;
           } else if (!nextTopics.toUpperCase().includes(itemTopicUpper)) {
             nextTopics = `${nextTopics} · ${itemTopicUpper}`;
@@ -1319,19 +1311,8 @@ export default function ProfSubmit() {
         }
       }
 
-      // C. Fallback seeded courses if offline / demo
       if (fetchedCourses.length === 0) {
-        fetchedCourses = [
-          {
-            id: "course-cc105",
-            code: "CC 105",
-            title: "INFORMATION MANAGEMENT",
-            units: 3,
-            department_name: "Computer Studies Department",
-            description:
-              "Database design and information system architectures.",
-          },
-        ];
+        fetchedCourses = [];
       }
 
       if (!isCancelled) {

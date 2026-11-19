@@ -235,7 +235,7 @@ export default function ProfMeet() {
   const [availableCourses, setAvailableCourses] = useState<MinimalCourseInfo[]>(
     [],
   );
-  const [instantCourse, setInstantCourse] = useState("CC 105 · BSIT 2B");
+  const [instantCourse, setInstantCourse] = useState("");
 
   // Load professor's assigned curriculum courses
   useEffect(() => {
@@ -259,20 +259,12 @@ export default function ProfMeet() {
           if (data && data.length > 0) list = data;
         } catch {}
       }
-      if (list.length === 0) {
-        list = [
-          { code: "CC 105", title: "INFORMATION MANAGEMENT", units: 3 },
-          {
-            code: "CC 116",
-            title: "ADVANCED WEB SYSTEMS AND TECHNOLOGIES",
-            units: 5,
-          },
-          { code: "CS 201", title: "DATA STRUCTURES AND ALGORITHMS", units: 3 },
-          { code: "IT 301", title: "WEB SYSTEMS AND TECHNOLOGIES", units: 3 },
-        ];
-      }
       if (!isCancelled) {
         setAvailableCourses(list);
+        if (list.length > 0) {
+          setInstantCourse((prev) => prev || list[0].code);
+          setSchedCourse((prev) => prev || list[0].code);
+        }
       }
     }
     loadCourses();
@@ -332,7 +324,7 @@ export default function ProfMeet() {
   // Schedule Modal State
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [schedTitle, setSchedTitle] = useState("");
-  const [schedCourse, setSchedCourse] = useState("CC 105 · BSIT 2B");
+  const [schedCourse, setSchedCourse] = useState("");
   const [schedDate, setSchedDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split("T")[0];
@@ -723,7 +715,8 @@ export default function ProfMeet() {
     // Launch inside ARIS native in-app window with the captured OAuth account
     await openInAppMeet(url, windowTitle, oauthName);
 
-    const courseForMeeting = instantCourse || "CC 105 · BSIT 2B";
+    const courseForMeeting =
+      instantCourse || (availableCourses[0]?.code ?? "Online Class");
     const courseCodeOnly = courseForMeeting.split(/[·\-–]/)[0].trim();
 
     setActiveCall({
@@ -766,7 +759,7 @@ export default function ProfMeet() {
     setActiveCall({
       id: "join-" + Date.now(),
       title: `Meeting (${clean})`,
-      course: instantCourse || "CC 105 · BSIT 2B",
+      course: instantCourse || (availableCourses[0]?.code ?? "Online Class"),
       code: clean,
       url,
       startedAt: Date.now(),
@@ -845,11 +838,15 @@ export default function ProfMeet() {
 
       // Parse course & section info for Teaching Load autofill
       const rawCourse =
-        currentCall.course || instantCourse || "CC 105 · BSIT 2B";
+        currentCall.course ||
+        instantCourse ||
+        (availableCourses[0]?.code ?? "");
       const parsedCourse = parseCourseString(rawCourse, availableCourses);
       const meetingDay = getDayAbbrev(startedAtDate);
       const meetingTime = `${formatTime12(startedAtDate)} – ${formatTime12(endedAtDate)}`;
-      const meetingDateStr = startedAtDate.toISOString().split("T")[0];
+      const meetingDateStr = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Manila",
+      }).format(startedAtDate);
       const autofillTopic =
         currentCall.title &&
         !currentCall.title.startsWith("Instant Class") &&
