@@ -304,11 +304,45 @@ function normalizePeriodLabel(value: string, defaultYear?: number) {
   return parts ? toPeriodLabel(parts, parts.half ?? "I") : currentMonthName();
 }
 
-function getPeriodTextMatch(value: string): PeriodParts | null {
-  const match = value.match(
-    /\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?(?:\s+(I|II))?/i,
-  );
-  return match ? parsePeriodLabel(match[0]) : null;
+function hasActiveSubmissionStatus(record: any): boolean {
+  const status = String(
+    record?.status ??
+      record?.submission_status ??
+      record?.record?.status ??
+      record?.record?.submission_status ??
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  return status !== "rejected" && status !== "returned";
+}
+
+function getApiErrorDetails(reason: unknown): {
+  status?: number;
+  message?: string;
+} {
+  if (
+    typeof reason !== "object" ||
+    reason === null ||
+    !("response" in reason)
+  ) {
+    return {};
+  }
+  const response = reason.response;
+  if (typeof response !== "object" || response === null) return {};
+  const status =
+    "status" in response && typeof response.status === "number"
+      ? response.status
+      : undefined;
+  const data = "data" in response ? response.data : undefined;
+  const message =
+    typeof data === "object" &&
+    data !== null &&
+    "message" in data &&
+    typeof data.message === "string"
+      ? data.message
+      : undefined;
+  return { status, message };
 }
 
 function getHeldDates(value: string) {
@@ -522,6 +556,9 @@ export default function ProfSubmit() {
       )
     : null;
   const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
+  const [submittedPeriods, setSubmittedPeriods] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [monthsLoading, setMonthsLoading] = useState(true);
   const [facultyName, setFacultyName] = useState(
     reviseSubmission?.record?.facultyName || user.name.toUpperCase(),
@@ -573,6 +610,7 @@ export default function ProfSubmit() {
       }
 
       // 2. Gather months from existing AR submissions
+      const submitted = new Set<string>();
       try {
         const arEndpoint = user?.email
           ? `/professor/accomplishment-reports?email=${encodeURIComponent(user.email)}`
@@ -592,11 +630,15 @@ export default function ProfSubmit() {
             const parts = parsePeriodLabel(p, recordDate?.year);
             if (parts) {
               monthSet.add(`${parts.year}-${parts.month}`);
+              if (parts.half && hasActiveSubmissionStatus(r)) {
+                submitted.add(toPeriodLabel(parts, parts.half));
+              }
             }
           }
         });
+        setSubmittedPeriods(submitted);
       } catch {
-        /* ignore AR fetch errors */
+        setSubmittedPeriods(new Set());
       }
 
       const current = getManilaDateParts(new Date());
@@ -629,6 +671,7 @@ export default function ProfSubmit() {
       });
     } catch {
       setAvailablePeriods([]);
+      setSubmittedPeriods(new Set());
     } finally {
       setMonthsLoading(false);
     }
@@ -826,7 +869,6 @@ export default function ProfSubmit() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicatePeriod, setDuplicatePeriod] = useState<string | null>(null);
-  const [duplicateModalConfirmed, setDuplicateModalConfirmed] = useState(false);
   const [modalAnimate, setModalAnimate] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Animate modal in when it opens
@@ -1514,47 +1556,36 @@ export default function ProfSubmit() {
   };
 
   /* ── 5. Form submission ── */
-  const checkExistingSubmission = (periodLabel: string) => {
-    const auditKeys = [
-      "aris:demo:/audit",
-      `aris:demo:/audit?email=${encodeURIComponent(user?.email ?? "")}`,
-    ];
-    for (const k of auditKeys) {
-      try {
-        const stored = localStorage.getItem(k);
-        if (stored) {
-          const parsed = JSON.parse(stored) as unknown;
-          const isArr = Array.isArray(parsed);
-          const logs: unknown[] = isArr
-            ? (parsed as unknown[])
-            : ((parsed as Record<string, unknown>)?.logs as unknown[]) ?? [];
-          const selected = parsePeriodLabel(periodLabel);
-          const matchingEntry = (logs as Array<{
-            action: string;
-            target: string;
-          }>).find(
-            (entry) => {
-              const text = `${entry?.action ?? ""} ${entry?.target ?? ""}`;
-              if (text.includes(periodLabel)) return true;
-              const existing = getPeriodTextMatch(text);
-              return Boolean(
-                selected &&
-                  existing &&
-                  existing.month === selected.month &&
-                  existing.year === selected.year &&
-                  (!existing.half || existing.half === selected.half),
-              );
-            },
-          );
-          if (matchingEntry) {
-            return true;
-          }
+  const checkExistingSubmission = async (periodLabel: string) => {
+    if (isRevision || !user?.email) return false;
+    const selected = parsePeriodLabel(periodLabel);
+    if (!selected?.half) return false;
+
+    const records = await loadResource(
+      `/professor/accomplishment-reports?email=${encodeURIComponent(user.email)}`,
+      [],
+    );
+    const alreadySubmitted =
+      Array.isArray(records) &&
+      records.some((record: any) => {
+        const label = record?.period || record?.record?.period;
+        if (typeof label !== "string" || !hasActiveSubmissionStatus(record)) {
+          return false;
         }
-      } catch {
-        /* ignore per-key errors */
-      }
+        const existing = parsePeriodLabel(label);
+        return Boolean(
+          existing &&
+            existing.month === selected.month &&
+            existing.year === selected.year &&
+            existing.half === selected.half,
+        );
+      });
+
+    if (alreadySubmitted) {
+      const label = toPeriodLabel(selected, selected.half);
+      setSubmittedPeriods((previous) => new Set(previous).add(label));
     }
-    return false;
+    return alreadySubmitted;
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -1564,14 +1595,24 @@ export default function ProfSubmit() {
 
     const submittedPeriod = revisionPeriod ?? period;
 
-    // Check for existing submission in the same month/period
-    const hasExisting = !isRevision && checkExistingSubmission(submittedPeriod);
-    if (hasExisting && !duplicateModalConfirmed) {
-      setShowDuplicateModal(true);
-      setDuplicatePeriod(submittedPeriod);
+    const stopIfAlreadySubmitted = async () => {
+      if (isRevision) return false;
+      try {
+        if (!(await checkExistingSubmission(submittedPeriod))) return false;
+        setDuplicatePeriod(submittedPeriod);
+        setShowDuplicateModal(true);
+      } catch (reason) {
+        setSubmitError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to verify whether this AR period was already submitted.",
+        );
+      }
       setIsSubmitting(false);
-      return;
-    }
+      return true;
+    };
+
+    if (await stopIfAlreadySubmitted()) return;
 
     const kind = "AR";
     const reference =
@@ -1713,24 +1754,49 @@ export default function ProfSubmit() {
       console.warn("Could not sync local audit store:", syncErr);
     }
 
+    if (await stopIfAlreadySubmitted()) return;
+
     try {
       // Submit directly to accomplishment_reports (and report_entries)
       await saveResource("/professor/accomplishment-reports", record);
       navigate("/prof/history");
     } catch (reason) {
+      const errorDetails = getApiErrorDetails(reason);
+      if (errorDetails.status === 409) {
+        setSubmitError(
+          errorDetails.message ||
+            (reason instanceof Error
+              ? reason.message
+              : "An AR for this period was already submitted."),
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       try {
         await saveResource("/professor/submissions", record);
         navigate("/prof/history");
-      } catch {
+      } catch (fallbackReason) {
+        const fallbackErrorDetails = getApiErrorDetails(fallbackReason);
+        const displayedReason =
+          fallbackErrorDetails.status === 409 ? fallbackReason : reason;
+        const displayedErrorDetails =
+          fallbackErrorDetails.status === 409
+            ? fallbackErrorDetails
+            : errorDetails;
         setSubmitError(
-          reason instanceof Error
-            ? reason.message
-            : "Unable to submit this record.",
+          displayedErrorDetails.message ||
+            (displayedReason instanceof Error
+              ? displayedReason.message
+              : "Unable to submit this record."),
         );
         setIsSubmitting(false);
       }
     }
   };
+
+  const selectedPeriodSubmitted =
+    !isRevision && submittedPeriods.has(period);
 
   return (
     <div className="pb-32 max-w-[1180px] mx-auto">
@@ -1860,27 +1926,20 @@ export default function ProfSubmit() {
               AR Already Submitted
             </h3>
             <p className="text-[#5a6b5e] mb-6">
-              You have already submitted an AR for {duplicatePeriod}. Would you like to submit again for this month?
+              You already submitted an AR for {duplicatePeriod}. Only one
+              submission per cycle is allowed.
             </p>
-            <div className="flex gap-3">
+            <div className="flex">
               <button
                 type="button"
                 onClick={() => setShowDuplicateModal(false)}
-                className="flex-1 rounded-xl border px-5 py-2.5 text-[13px] font-semibold text-[#5a6b5e] transition-all hover:bg-[#f7f9f8] active:scale-[0.98]"
-                style={{ borderColor: "#e8eeea" }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDuplicateModalConfirmed(true);
-                  setShowDuplicateModal(false);
+                className="w-full rounded-xl px-5 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
+                style={{
+                  background:
+                    "linear-gradient(135deg,#009668 0%,#00b87a 100%)",
                 }}
-                className="flex-1 rounded-xl px-5 py-2.5 text-[13px] font-bold text-white transition-all active:scale-[0.98]"
-                style={{ background: "linear-gradient(135deg,#009668 0%,#00b87a 100%)" }}
               >
-                Submit Anyway
+                OK
               </button>
             </div>
           </div>
@@ -1919,6 +1978,9 @@ export default function ProfSubmit() {
                   ) : isRevision ? (
                     <option value={revisionPeriod ?? period}>
                       {revisionPeriod ?? period}
+                      {submittedPeriods.has(revisionPeriod ?? period)
+                        ? " (Submitted)"
+                        : ""}
                     </option>
                   ) : availablePeriods.length === 0 ? (
                     <option disabled>No AR or MEET data found</option>
@@ -1926,6 +1988,7 @@ export default function ProfSubmit() {
                     availablePeriods.map((m) => (
                       <option key={m} value={m}>
                         {m}
+                        {submittedPeriods.has(m) ? " (Submitted)" : ""}
                       </option>
                     ))
                   )}
@@ -1936,6 +1999,11 @@ export default function ProfSubmit() {
                   style={{ borderColor: "#111c14" }}
                 />
               </div>
+              {selectedPeriodSubmitted && (
+                <p className="mt-2 text-xs font-medium text-amber-700">
+                  An AR has already been submitted for this period.
+                </p>
+              )}
             </div>
           </div>
         </SectionCard>
@@ -3077,7 +3145,9 @@ export default function ProfSubmit() {
           <button
             type="submit"
             form="submit-form"
-            disabled={isSubmitting || courses.length === 0}
+            disabled={
+              isSubmitting || courses.length === 0 || selectedPeriodSubmitted
+            }
             className="px-6 py-2.5 rounded-xl text-[13px] font-bold text-white transition-all flex items-center gap-2 active:scale-[0.98] disabled:opacity-70 shadow-md cursor-pointer"
             style={{
               background: isSubmitting
