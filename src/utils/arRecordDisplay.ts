@@ -204,7 +204,7 @@ export function formatArPeriodRange(period: string, submittedAt?: string) {
 export function formatArMonth(period: string, submittedAt?: string) {
   const text = period.trim();
   const monthFirst = text.match(
-    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II|Full))?(?:\s+\([^)]*\))?/i,
+    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II))?(?:\s+\([^)]*\))?/i,
   );
   if (monthFirst) {
     const monthIndex = MONTH_NAMES.findIndex(

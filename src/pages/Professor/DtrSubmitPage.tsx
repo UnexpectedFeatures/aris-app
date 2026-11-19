@@ -12,7 +12,7 @@ import { fetchBiometricsTransactions } from "@/services/biometricsService";
 import { useAuth } from "@/app/authContext";
 import { saveResource } from "@/services/dataSource";
 
-type DtrPeriod = "first-half" | "second-half" | "whole-month";
+type DtrPeriod = "first-half" | "second-half";
 
 type PunchRecord = {
   punch_time: string;
@@ -60,19 +60,10 @@ export function getDtrDateRange(monthValue: string, period: DtrPeriod) {
   const formatDate = (day: number) =>
     `${match[1]}-${monthText}-${String(day).padStart(2, "0")}`;
 
-  const startDay =
-    period === "whole-month" ? 1 : period === "first-half" ? 1 : 16;
-  const endDay =
-    period === "whole-month"
-      ? daysInMonth
-      : period === "first-half"
-        ? 15
-        : daysInMonth;
-
+  const startDay = period === "first-half" ? 1 : 16;
+  const endDay = period === "first-half" ? 15 : daysInMonth;
   const periodLabel =
-    period === "whole-month"
-      ? `${monthName} ${year} (Whole Month)`
-      : `${monthName} ${year} (${period === "first-half" ? "1–15" : "16–end"})`;
+    `${monthName} ${year} (${period === "first-half" ? "1–15" : "16–end"})`;
 
   return {
     startDate: formatDate(startDay),
@@ -513,7 +504,6 @@ export default function DtrSubmitPage() {
             >
               <option value="first-half">1–15</option>
               <option value="second-half">16–end of month</option>
-              <option value="whole-month">Whole month</option>
             </select>
           </label>
           <button

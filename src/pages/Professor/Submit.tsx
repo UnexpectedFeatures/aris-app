@@ -33,7 +33,7 @@ const MONTH_NAMES = [
   "December",
 ];
 
-type PeriodCycle = "I" | "II" | "Full";
+type PeriodCycle = "I" | "II";
 type ManilaDateParts = { year: number; month: number; day: number };
 type PeriodParts = { month: number; year: number; half?: PeriodCycle };
 
@@ -79,7 +79,7 @@ function getManilaDateParts(value: string | Date): ManilaDateParts | null {
 
 function parsePeriodLabel(value: string, defaultYear?: number): PeriodParts | null {
   const match = value.match(
-    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II|Full|Whole))?(?:\s+\((?:Whole|Full)\s+Month\))?(?:\s+(?:Whole|Full)\s+Month)?(?:\s+\([^)]*\))?$/i,
+    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II))?(?:\s+\([^)]*\))?$/i,
   );
   if (!match) return null;
   const month = MONTH_NAMES.findIndex(
@@ -93,18 +93,10 @@ function parsePeriodLabel(value: string, defaultYear?: number): PeriodParts | nu
 
   let half: PeriodCycle | undefined = undefined;
   const rawHalf = (match[3] || "").toLowerCase();
-  const lowerVal = value.toLowerCase();
   if (rawHalf === "i") {
     half = "I";
   } else if (rawHalf === "ii") {
     half = "II";
-  } else if (
-    rawHalf === "full" ||
-    rawHalf === "whole" ||
-    lowerVal.includes("full") ||
-    lowerVal.includes("whole")
-  ) {
-    half = "Full";
   }
 
   return {
@@ -115,9 +107,6 @@ function parsePeriodLabel(value: string, defaultYear?: number): PeriodParts | nu
 }
 
 function toPeriodLabel(parts: PeriodParts, half: PeriodCycle = "I") {
-  if (half === "Full") {
-    return `${MONTH_NAMES[parts.month - 1]} ${parts.year} Full Month`;
-  }
   return `${MONTH_NAMES[parts.month - 1]} ${parts.year} ${half}`;
 }
 
@@ -131,7 +120,7 @@ function isDateInPeriod(
   ) {
     return false;
   }
-  if (!targetPeriod.half || targetPeriod.half === "Full") return true;
+  if (!targetPeriod.half) return true;
   return targetPeriod.half === "I" ? dateParts.day <= 15 : dateParts.day >= 16;
 }
 
@@ -317,7 +306,7 @@ function normalizePeriodLabel(value: string, defaultYear?: number) {
 
 function getPeriodTextMatch(value: string): PeriodParts | null {
   const match = value.match(
-    /\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?(?:\s+(I|II|Full|Whole))?(?:\s+\((?:Whole|Full)\s+Month\))?(?:\s+(?:Whole|Full)\s+Month)?/i,
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?(?:\s+(I|II))?/i,
   );
   return match ? parsePeriodLabel(match[0]) : null;
 }
@@ -620,7 +609,6 @@ export default function ProfSubmit() {
         .flatMap(([year, month]) => [
           toPeriodLabel({ year, month }, "I"),
           toPeriodLabel({ year, month }, "II"),
-          toPeriodLabel({ year, month }, "Full"),
         ]);
       setAvailablePeriods(periods);
 
