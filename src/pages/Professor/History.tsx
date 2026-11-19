@@ -23,6 +23,7 @@ import {
 } from "@/components/ui";
 import {
   formatArPeriodRange,
+  formatArMonth,
   formatManilaTimestamp,
 } from "@/utils/arRecordDisplay";
 
@@ -917,6 +918,7 @@ export default function ProfHistory() {
     const source = records.filter((r) => {
       if (!q) return true;
       const matchPeriod = r.period?.toLowerCase().includes(q);
+      const matchMonth = formatArMonth(r.period, r.submitted).toLowerCase().includes(q);
       const matchRef =
         r.id?.toLowerCase().includes(q) ||
         r.record?.reference?.toLowerCase().includes(q);
@@ -924,23 +926,25 @@ export default function ProfHistory() {
       const matchStage = r.stage?.toLowerCase().includes(q);
       const matchStatus = r.status?.toLowerCase().includes(q);
       return Boolean(
-        matchPeriod || matchRef || matchUnits || matchStage || matchStatus,
+        matchPeriod || matchMonth || matchRef || matchUnits || matchStage || matchStatus,
       );
     });
 
     const map = new Map<string, { ar: HistoryRecord | null; dtr: HistoryRecord | null }>();
     for (const r of source) {
-      const formattedPeriod = formatArPeriodRange(r.period, r.submitted);
-      const existing = map.get(formattedPeriod) ?? { ar: null, dtr: null };
+      const month = formatArMonth(r.period, r.submitted);
+      const existing = map.get(month) ?? { ar: null, dtr: null };
       if (r.type === "AR") {
         if (!existing.ar) existing.ar = r;
       } else {
         if (!existing.dtr) existing.dtr = r;
       }
-      map.set(formattedPeriod, existing);
+      map.set(month, existing);
     }
 
-    return Array.from(map.entries()).map(([period, { ar, dtr }]) => {
+    return Array.from(map.entries()).sort(([monthA], [monthB]) =>
+      monthB.localeCompare(monthA, undefined, { numeric: true }),
+    ).map(([period, { ar, dtr }]) => {
       const arStatus = ar?.status;
       const dtrStatus = dtr?.status;
       const isBlocked =
@@ -1036,7 +1040,7 @@ export default function ProfHistory() {
                   <rect x="2" y="2" width="5" height="12" rx="1" />
                   <rect x="9" y="2" width="5" height="12" rx="1" />
                 </svg>
-                Unified Cycle
+                Unified Month
               </button>
             </div>
             <GhostButton onClick={() => reload()}>
@@ -1294,7 +1298,7 @@ export default function ProfHistory() {
                         {group.period}
                       </p>
                       <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
-                        Pay Cycle Submissions &amp; Readiness
+                        Month Submissions &amp; Readiness
                       </p>
                     </div>
                     <span

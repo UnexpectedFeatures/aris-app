@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -10,6 +11,7 @@ import {
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface UpdateContextValue {
   available: boolean;
@@ -52,6 +54,16 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   const updateRef = useRef<Update | null>(null);
   const busyRef = useRef(false); // guards against double check/install
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    void getVersion()
+      .then(setCurrentVersion)
+      .catch((err) => {
+        console.error("[getVersion] raw error:", err);
+      });
+  }, []);
 
   const checkForUpdate = useCallback(async () => {
     if (busyRef.current) return;

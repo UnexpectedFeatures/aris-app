@@ -201,6 +201,66 @@ export function formatArPeriodRange(period: string, submittedAt?: string) {
   return `${monthName} 1 – ${daysInMonth(year, monthIndex + 1)}, ${year}`;
 }
 
+export function formatArMonth(period: string, submittedAt?: string) {
+  const text = period.trim();
+  const monthFirst = text.match(
+    /^([A-Za-z]+)(?:\s+(\d{4}))?(?:\s+(I|II|Full))?(?:\s+\([^)]*\))?/i,
+  );
+  if (monthFirst) {
+    const monthIndex = MONTH_NAMES.findIndex(
+      (name) =>
+        name.toLowerCase() === monthFirst[1].toLowerCase() ||
+        name.slice(0, 3).toLowerCase() === monthFirst[1].toLowerCase(),
+    );
+    if (monthIndex >= 0) {
+      const year = monthFirst[2]
+        ? Number(monthFirst[2])
+        : getManilaYear(submittedAt);
+      if (year) return `${MONTH_NAMES[monthIndex]} ${year}`;
+    }
+  }
+
+  const isoMonth = text.match(/^(\d{4})-(\d{1,2})(?:-|$)/);
+  if (isoMonth) {
+    const year = Number(isoMonth[1]);
+    const monthIndex = Number(isoMonth[2]) - 1;
+    if (monthIndex >= 0 && monthIndex < 12) {
+      return `${MONTH_NAMES[monthIndex]} ${year}`;
+    }
+  }
+
+  const formatted = formatArPeriodRange(text, submittedAt);
+  const formattedMatch = formatted.match(/^([A-Za-z]+)\s+\d{1,2}\s*[–-]\s*\d{1,2},\s*(\d{4})$/);
+  if (formattedMatch) return `${formattedMatch[1]} ${formattedMatch[2]}`;
+
+  const submittedYear = getManilaYear(submittedAt);
+  if (submittedYear) {
+    const isoMatch = submittedAt?.match(/^(\d{4})-(\d{1,2})-\d{1,2}/);
+    if (isoMatch) {
+      const monthIndex = Number(isoMatch[2]) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) {
+        return `${MONTH_NAMES[monthIndex]} ${submittedYear}`;
+      }
+    }
+    const numericMatch = submittedAt?.match(/^(\d{1,2})\/\d{1,2}\/\d{4}/);
+    if (numericMatch) {
+      const monthIndex = Number(numericMatch[1]) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) {
+        return `${MONTH_NAMES[monthIndex]} ${submittedYear}`;
+      }
+    }
+    const namedMatch = submittedAt?.match(/^([A-Za-z]{3,})\s+\d{1,2}/i);
+    if (namedMatch) {
+      const monthIndex = MONTH_NAMES.findIndex(
+        (name) => name.toLowerCase().startsWith(namedMatch[1].toLowerCase()),
+      );
+      if (monthIndex >= 0) return `${MONTH_NAMES[monthIndex]} ${submittedYear}`;
+    }
+  }
+
+  return text;
+}
+
 export function formatProgramSection(value: string | number | null | undefined) {
   const section = String(value ?? "").trim();
   return section || "—";

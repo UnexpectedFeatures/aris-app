@@ -522,6 +522,16 @@ export default function ProfSubmit() {
       )?.year,
     ),
   );
+  const revisionPeriod = isRevision
+    ? normalizePeriodLabel(
+        reviseSubmission?.period || reviseSubmission?.record?.period || period,
+        getManilaDateParts(
+          reviseSubmission?.created_at ||
+            reviseSubmission?.record?.created_at ||
+            "",
+        )?.year,
+      )
+    : null;
   const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
   const [monthsLoading, setMonthsLoading] = useState(true);
   const [facultyName, setFacultyName] = useState(
@@ -650,9 +660,8 @@ export default function ProfSubmit() {
 
     if (
       isRevision &&
-      reviseSubmission?.period &&
-      normalizePeriodLabel(reviseSubmission.period) ===
-        normalizePeriodLabel(period)
+      revisionPeriod &&
+      revisionPeriod === normalizePeriodLabel(period)
     ) {
       return;
     }
@@ -1565,11 +1574,13 @@ export default function ProfSubmit() {
     setIsSubmitting(true);
     setSubmitError(null);
 
+    const submittedPeriod = revisionPeriod ?? period;
+
     // Check for existing submission in the same month/period
-    const hasExisting = checkExistingSubmission(period);
+    const hasExisting = !isRevision && checkExistingSubmission(submittedPeriod);
     if (hasExisting && !duplicateModalConfirmed) {
       setShowDuplicateModal(true);
-      setDuplicatePeriod(period);
+      setDuplicatePeriod(submittedPeriod);
       setIsSubmitting(false);
       return;
     }
@@ -1600,7 +1611,7 @@ export default function ProfSubmit() {
       reference,
       is_revision: isRevision,
       type: kind,
-      period,
+      period: submittedPeriod,
       units: `${courses.length} course${courses.length === 1 ? "" : "s"}`,
       submitted: now,
       status: "Pending",
@@ -1614,12 +1625,12 @@ export default function ProfSubmit() {
       facultyName: facultyName || user?.name || "Faculty",
       facultyNumber: facultyNumber || "—",
       event: isRevision
-        ? `${kind} resubmitted with corrections · ${period}`
-        : `${kind} submitted · ${period}`,
+        ? `${kind} resubmitted with corrections · ${submittedPeriod}`
+        : `${kind} submitted · ${submittedPeriod}`,
       record: {
         id: existingId,
         report_id: existingId,
-        period,
+        period: submittedPeriod,
         reference,
         email: user?.email,
         facultyEmail: user?.email,
@@ -1907,13 +1918,20 @@ export default function ProfSubmit() {
               <div className="relative">
                 <select
                   value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
+                  onChange={(e) => {
+                    if (!isRevision) setPeriod(e.target.value);
+                  }}
                   className={`${inputCls} appearance-none pr-10`}
                   style={inputStyle}
-                  disabled={monthsLoading}
+                  disabled={monthsLoading || isRevision}
+                  aria-label="Period"
                 >
                   {monthsLoading ? (
                     <option disabled>Loading months…</option>
+                  ) : isRevision ? (
+                    <option value={revisionPeriod ?? period}>
+                      {revisionPeriod ?? period}
+                    </option>
                   ) : availablePeriods.length === 0 ? (
                     <option disabled>No AR or MEET data found</option>
                   ) : (

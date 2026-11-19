@@ -216,7 +216,7 @@ export default function SystemSettings() {
               <p className="mt-0.5 text-[12px] text-[#5a6b5e]">
                 Current installed client build:{" "}
                 <span className="font-semibold text-[#111c14]">
-                  {currentVersion ? `v${currentVersion}` : "v1.1.3"}
+                  {currentVersion ? `v${currentVersion}` : "Unavailable"}
                 </span>
                 {updateAvailable && (
                   <span className="text-[#996515] font-medium ml-1.5">
@@ -472,7 +472,7 @@ export default function SystemSettings() {
           <p className="text-[11.5px] text-[#5a6b5e]">
             Official software builds published and signed by the{" "}
             <span className="font-semibold text-[#111c14]">
-              University of Caloocan City Capstone Development Team
+             ARIS
             </span>
             . All downloads connect over TLS 1.3 encrypted endpoints.
           </p>
