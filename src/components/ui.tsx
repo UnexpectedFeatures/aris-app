@@ -191,14 +191,17 @@ export function PageTitle({
 export function PrimaryButton({
   children,
   onClick,
+  disabled,
 }: {
   children: ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 h-9 px-4 rounded-xl text-[13px] font-semibold text-white transition-transform active:scale-[0.99]"
+      disabled={disabled}
+      className={`flex items-center gap-2 h-9 px-4 rounded-xl text-[13px] font-semibold text-white transition-transform active:scale-[0.99] ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
       style={{ background: BRAND }}
     >
       {children}
@@ -209,16 +212,19 @@ export function PrimaryButton({
 export function GhostButton({
   children,
   onClick,
+  disabled,
   className = "",
 }: {
   children: ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
   className?: string;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 h-9 px-3.5 rounded-xl text-[13px] font-medium bg-white border transition-colors hover:bg-[#f7f9f8] ${className}`}
+      disabled={disabled}
+      className={`flex items-center gap-2 h-9 px-3.5 rounded-xl text-[13px] font-medium bg-white border transition-colors hover:bg-[#f7f9f8] ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"} ${className}`}
       style={{ borderColor: "#e2e8e4", color: "#3d4a41" }}
     >
       {children}

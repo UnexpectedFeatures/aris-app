@@ -10,6 +10,7 @@ import ProfSummaries from "@/pages/Professor/Summaries";
 import Tickets from "@/pages/Professor/Tickets";
 import UserSettings from "@/pages/Admin/UserSettings";
 import SystemSettings from "@/pages/Admin/SystemSettings";
+import AdminApprovalWorkflow from "@/pages/Admin/ApprovalWorkflow";
 import StaffOverview from "@/pages/Staff/Overview";
 import StaffApprovals from "@/pages/Staff/Approvals";
 import StaffAnnouncements from "@/pages/Professor/Announcements";
@@ -62,6 +63,8 @@ export const desktopRouter = createHashRouter([
         element: <Navigate to="/admin/biometrics" replace />,
       },
       { path: "biometrics", Component: AuthenticatorPage },
+      { path: "approvals/workflow", Component: AdminApprovalWorkflow },
+      { path: "approvals", Component: StaffApprovals },
       { path: "settings/system", Component: SystemSettings },
       { path: "settings/user", Component: UserSettings },
       { path: "*", element: <Navigate to="/admin/biometrics" replace /> },
@@ -73,6 +76,7 @@ export const desktopRouter = createHashRouter([
     children: [
       { index: true, Component: StaffOverview },
       { path: "approvals", Component: StaffApprovals },
+      { path: "approvals/workflow", Component: AdminApprovalWorkflow },
       { path: "announcements", Component: StaffAnnouncements },
       { path: "notifications", Component: StaffAnnouncements },
       { path: "tickets", Component: Tickets },

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useNavigate } from "react-router";
 import { useAuth } from "@/app/authContext";
 import { BRAND } from "@/config/navigation";
 import { useResource } from "@/hooks/useResource";
@@ -19,29 +20,85 @@ import {
 } from "@/components/ui";
 
 // Where each support stage acts on the AR / DTR submissions routed to it:
-// Checker → Secretary → HR → Accounting.
+// Dynamically configurable with backward-compatible legacy pipeline fallback.
 
 const STAGES = ["Checker", "Secretary", "HR", "Accounting"] as const;
-type StageRole = (typeof STAGES)[number];
+type StageRole = string;
 
-/** Staff account signed in at each stage. */
-const STAGE_OWNER: Record<StageRole, string> = {
+export type ApprovalStageItem = {
+  id?: string;
+  stage_key: string;
+  label: string;
+  role_name?: string;
+  stage_order: number;
+  document_type?: "AR" | "DTR" | "ALL";
+  color?: string;
+  description?: string;
+  is_final?: boolean;
+  is_active?: boolean;
+};
+
+/** Staff account signed in at each stage (fallback names). */
+const STAGE_OWNER: Record<string, string> = {
   Checker: "Prof. R. Alonzo",
   Secretary: "L. Bautista",
   HR: "Ana Bautista",
   Accounting: "Payroll Office",
 };
 
-const STAGE_COLOR: Record<StageRole, string> = {
+const STAGE_COLOR: Record<string, string> = {
   Checker: "#3a7d4e",
   Secretary: "#3f8ecc",
   HR: "#8a63c4",
   Accounting: "#d99a2b",
 };
 
-/** The next stage in the routing order, or undefined at the final stage. */
-const nextStageOf = (stage: StageRole): StageRole | undefined =>
-  STAGES[STAGES.indexOf(stage) + 1] as StageRole | undefined;
+export const getStageColor = (stageName: string, item?: ApprovalItem | null): string => {
+  if (item?.stageColor && item.stage === stageName) return item.stageColor;
+  if (item?.stages) {
+    const found = item.stages.find((s) => s.label === stageName || s.role_name === stageName);
+    if (found?.color) return found.color;
+  }
+  return STAGE_COLOR[stageName] || "#3a7d4e";
+};
+
+export function matchesUserPosition(
+  userPos?: string | null,
+  stageRole?: string | null,
+  stageLabel?: string | null,
+): boolean {
+  if (!userPos) return false;
+  const pos = userPos.trim().toLowerCase();
+  const r = (stageRole || "").trim().toLowerCase();
+  const l = (stageLabel || "").trim().toLowerCase();
+
+  if (pos.includes("check") && (r.includes("check") || l.includes("check"))) return true;
+  if (pos.includes("sec") && (r.includes("sec") || l.includes("sec"))) return true;
+  if ((pos.includes("hr") || pos.includes("human")) && (r.includes("hr") || l.includes("hr") || r.includes("human") || l.includes("human"))) return true;
+  if ((pos.includes("account") || pos.includes("payroll")) && (r.includes("account") || l.includes("account") || r.includes("payroll") || l.includes("payroll"))) return true;
+
+  if (r && (pos.includes(r) || r.includes(pos))) return true;
+  if (l && (pos.includes(l) || l.includes(pos))) return true;
+  return false;
+}
+
+export const getNextStage = (item: ApprovalItem): ApprovalStageItem | undefined => {
+  if (!item) return undefined;
+  const stages: ApprovalStageItem[] =
+    item.stages && item.stages.length > 0
+      ? item.stages
+      : STAGES.map((name, i) => ({
+          stage_key: `STG-${i + 1}`,
+          label: name,
+          role_name: name,
+          stage_order: i + 1,
+          color: STAGE_COLOR[name] || "#3a7d4e",
+          is_final: i === STAGES.length - 1,
+        }));
+  const at = item.currentStageIndex ?? stages.findIndex((s) => s.label === item.stage);
+  if (at === -1 || at >= stages.length - 1) return undefined;
+  return stages[at + 1];
+};
 
 type ApprovalItem = {
   id: string;
@@ -52,7 +109,13 @@ type ApprovalItem = {
   reference: string;
   submitted: string;
   /** Stage the submission currently sits at. */
-  stage: StageRole;
+  stage: string;
+  stageRole?: string;
+  stageColor?: string;
+  stageOrder?: number;
+  currentStageIndex?: number;
+  isPastFlow?: boolean;
+  stages?: ApprovalStageItem[];
   status: StatusKind;
   event: string;
   record: RecordPayload;
@@ -69,21 +132,38 @@ const initialsOf = (name: string) =>
     .join("")
     .slice(0, 2);
 
-
-
 /** How a submission reads from the acting role's point of view. */
 function stageStatus(
   it: ApprovalItem,
-  role: StageRole | null,
+  role: string | null,
 ): { label: string; tone: "green" | "amber" | "red" | "gray"; note: string } {
-  if (!role) return { label: "View only", tone: "gray", note: "no review role assigned" };
-  const mine = STAGES.indexOf(role);
-  const at = STAGES.indexOf(it.stage);
+  const stages: ApprovalStageItem[] =
+    it.stages && itemStagesValid(it.stages)
+      ? it.stages
+      : STAGES.map((s, idx) => ({
+          stage_key: `STG-${idx + 1}`,
+          label: s,
+          role_name: s,
+          stage_order: idx + 1,
+          color: STAGE_COLOR[s] || "#3a7d4e",
+          is_final: idx === 3,
+        }));
+
+  let at = it.currentStageIndex ?? stages.findIndex((s) => s.label === it.stage);
+  if (at === -1) at = 0;
+
   if (it.status === "Disapproved") {
     return { label: "Disapproved", tone: "red", note: `at ${it.stage}` };
   }
   if (it.status === "Approved") {
-    return { label: "Done", tone: "green", note: "cleared by Accounting" };
+    return { label: "Done", tone: "green", note: "cleared for payroll" };
+  }
+
+  if (!role) return { label: "View only", tone: "gray", note: `at ${it.stage}` };
+
+  const mine = stages.findIndex((s) => matchesUserPosition(role, s.role_name, s.label));
+  if (mine === -1) {
+    return { label: it.status, tone: "amber", note: `at ${it.stage}` };
   }
   // Already approved at this role — it moved on to the next stage.
   if (at > mine) {
@@ -96,90 +176,117 @@ function stageStatus(
   return { label: "Waiting", tone: "gray", note: `at ${it.stage}` };
 }
 
+function itemStagesValid(stages?: ApprovalStageItem[]): boolean {
+  return Array.isArray(stages) && stages.length > 0;
+}
+
 /* ─── Stage progress rail ──────────────────────────────────────────────────── */
 
 function StageProgress({ item }: { item: ApprovalItem }) {
-  const at = STAGES.indexOf(item.stage);
+  const stages: ApprovalStageItem[] =
+    item.stages && itemStagesValid(item.stages)
+      ? item.stages
+      : STAGES.map((name, i) => ({
+          stage_key: `STG-${i + 1}`,
+          label: name,
+          role_name: name,
+          stage_order: i + 1,
+          color: STAGE_COLOR[name] || "#3a7d4e",
+          is_final: i === STAGES.length - 1,
+        }));
+
+  let at = item.currentStageIndex ?? stages.findIndex((s) => s.label === item.stage);
+  if (at === -1) at = 0;
   const finished = item.status === "Approved";
   const rejected = item.status === "Disapproved";
 
   return (
-    <div className="flex items-center gap-1.5 mt-4 flex-wrap">
-      {STAGES.map((s, i) => {
-        const isRejected = rejected && i === at;
-        const isDone = !isRejected && (finished || i < at);
-        const isCurrent = !isRejected && !isDone && i === at;
-        const bg = isRejected
-          ? "#fbecec"
-          : isDone
-            ? "#eaf4ee"
-            : isCurrent
-              ? "#fbf1de"
-              : "#f4f6f5";
-        const fg = isRejected
-          ? "#c0392b"
-          : isDone
-            ? "#2f7043"
-            : isCurrent
-              ? "#996515"
-              : "#b6c3ba";
-        return (
-          <span key={s} className="flex items-center gap-1.5">
-            {i > 0 && (
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#d6ded8"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                className="w-3 h-3 flex-shrink-0"
+    <div>
+      <div className="flex items-center gap-1.5 mt-4 flex-wrap">
+        {stages.map((stg, i) => {
+          const isRejected = rejected && i === at;
+          const isDone = !isRejected && (finished || i < at);
+          const isCurrent = !isRejected && !isDone && i === at;
+          const bg = isRejected
+            ? "#fbecec"
+            : isDone
+              ? "#eaf4ee"
+              : isCurrent
+                ? "#fbf1de"
+                : "#f4f6f5";
+          const fg = isRejected
+            ? "#c0392b"
+            : isDone
+              ? "#2f7043"
+              : isCurrent
+                ? "#996515"
+                : "#b6c3ba";
+          return (
+            <span key={stg.stage_key || `${stg.label}-${i}`} className="flex items-center gap-1.5">
+              {i > 0 && (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#d6ded8"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  className="w-3 h-3 flex-shrink-0"
+                >
+                  <path d="M9 6l6 6-6 6" />
+                </svg>
+              )}
+              <span
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold"
+                style={{
+                  background: bg,
+                  color: fg,
+                  boxShadow: isCurrent ? "0 0 0 1px #e6cf9b inset" : "none",
+                }}
               >
-                <path d="M9 6l6 6-6 6" />
-              </svg>
-            )}
-            <span
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold"
-              style={{
-                background: bg,
-                color: fg,
-                boxShadow: isCurrent ? "0 0 0 1px #e6cf9b inset" : "none",
-              }}
-            >
-              {isDone && (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="w-3 h-3"
-                >
-                  <path d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-              {isRejected && (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  className="w-3 h-3"
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              )}
-              {s}
+                {isDone && (
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="w-3 h-3"
+                  >
+                    <path d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+                {isRejected && (
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    className="w-3 h-3"
+                  >
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                )}
+                {stg.label}
+              </span>
             </span>
-          </span>
-        );
-      })}
+          );
+        })}
+      </div>
+      {item.isPastFlow && (
+        <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-[#718576]">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 flex-shrink-0 text-[#8fa394]">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <span>Retaining original approval paper flow (legacy 4-stage process).</span>
+        </div>
+      )}
     </div>
   );
 }
-
-/* ─── Page ─────────────────────────────────────────────────────────────────── */
 
 /* ─── Page ─────────────────────────────────────────────────────────────────── */
 
@@ -189,7 +296,7 @@ function QueueCard({
   onOpen,
 }: {
   item: ApprovalItem;
-  role: StageRole | null;
+  role: string | null;
   onOpen: () => void;
 }) {
   const st = stageStatus(item, role);
@@ -199,13 +306,13 @@ function QueueCard({
       ? "#2f7043"
       : item.status === "Disapproved"
         ? "#c0392b"
-        : STAGE_COLOR[item.stage];
+        : getStageColor(item.stage, item);
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="w-full text-left bg-white rounded-2xl p-3 border transition-all hover:shadow-md"
+      className="w-full text-left bg-white rounded-2xl p-3 border transition-all hover:shadow-md cursor-pointer"
       style={{
         borderColor: decided
           ? item.status === "Approved"
@@ -242,6 +349,11 @@ function QueueCard({
         <span className="text-[10.5px] truncate" style={{ color: "#8fa394" }}>
           {item.period}
         </span>
+        {item.isPastFlow && (
+          <span className="text-[9.5px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold border border-amber-200">
+            Past flow
+          </span>
+        )}
       </div>
 
       <div
@@ -273,20 +385,68 @@ function QueueCard({
 
 export default function Approvals() {
   const { user } = useAuth();
-  const { data: queue, setData: setQueue, loading } = useResource<ApprovalItem[]>("/approvals", []);
-  const role = user.role === "staff" && STAGES.includes(user.staffStage as StageRole)
-    ? user.staffStage as StageRole
-    : null;
+  const navigate = useNavigate();
+  const isAdmin = user.role === "administrator";
+  const userStaffRole = user.staffStage || (isAdmin ? "Admin" : null);
+
+  const { data: rawStages } = useResource<ApprovalStageItem[]>("/approvals/stages", []);
+  const allStages = Array.isArray(rawStages) ? rawStages : [];
+
+  const { data: rawQueue, setData: setQueue, loading } = useResource<ApprovalItem[]>("/approvals", []);
+  const queue = Array.isArray(rawQueue) ? rawQueue : [];
+
   const [query, setQuery] = useState("");
   const [showDecided, setShowDecided] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
   const [remark, setRemark] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
 
+  // Dynamic board columns derived from active stages
+  const boardColumns = useMemo(() => {
+    if (allStages.length > 0) {
+      const active = allStages
+        .filter((s) => s.is_active !== false)
+        .sort((a, b) => a.stage_order - b.stage_order);
+      const seen = new Set<string>();
+      const cols: { key: string; label: string; role_name: string; color: string }[] = [];
+      for (const stg of active) {
+        if (!seen.has(stg.label)) {
+          seen.add(stg.label);
+          cols.push({
+            key: stg.stage_key || stg.label,
+            label: stg.label,
+            role_name: stg.role_name || stg.label,
+            color: stg.color || STAGE_COLOR[stg.label] || "#3a7d4e",
+          });
+        }
+      }
+      if (cols.length > 0) return cols;
+    }
+    return STAGES.map((s) => ({
+      key: s,
+      label: s,
+      role_name: s,
+      color: STAGE_COLOR[s],
+    }));
+  }, [allStages]);
+
   const open = queue.find((it) => it.id === openId) ?? null;
-  const openStatus = open ? stageStatus(open, role) : null;
-  const canAct = !!open && !!role && (open.status === "Pending" || (role === "Accounting" && open.status !== "Approved")) && (open.stage === role || role === "Accounting");
-  const next = open ? nextStageOf(open.stage) : undefined;
+  const openStatus = open ? stageStatus(open, userStaffRole) : null;
+  const next = useMemo(() => (open ? getNextStage(open) : undefined), [open]);
+
+  const isTerminal = useMemo(() => {
+    if (!open) return false;
+    if (open.stages && itemStagesValid(open.stages)) {
+      const idx = open.currentStageIndex ?? open.stages.findIndex((s) => s.label === open.stage);
+      return Boolean(open.stages[idx]?.is_final || idx === open.stages.length - 1);
+    }
+    return open.stage === "Accounting" || userStaffRole === "Accounting";
+  }, [open, userStaffRole]);
+
+  const canAct =
+    !!open &&
+    (open.status === "Pending" || (isTerminal && open.status !== "Approved")) &&
+    (isAdmin || matchesUserPosition(userStaffRole, open.stageRole, open.stage));
 
   const q = query.trim().toLowerCase();
   const visible = queue.filter((it) => {
@@ -298,17 +458,24 @@ export default function Approvals() {
       it.period.toLowerCase().includes(q)
     );
   });
-  const column = (s: StageRole) => visible.filter((it) => it.stage === s);
 
-  const awaiting = role
-    ? queue.filter((it) => it.status === "Pending" && it.stage === role).length
+  const column = (colLabel: string, colRole: string) =>
+    visible.filter((it) => it.stage === colLabel || it.stageRole === colRole || it.stage === colRole);
+
+  const awaiting = userStaffRole
+    ? queue.filter(
+        (it) =>
+          it.status === "Pending" &&
+          (isAdmin || matchesUserPosition(userStaffRole, it.stageRole, it.stage)),
+      ).length
     : 0;
   const inPipeline = queue.filter((it) => it.status === "Pending").length;
 
   const decide = async (item: ApprovalItem, action: "Approve" | "Disapprove") => {
-    if (!role || (item.status !== "Pending" && !(role === "Accounting" && item.status !== "Approved")) || (item.stage !== role && role !== "Accounting")) return;
-    const reviewer = `${user.name} (${role})`;
-    const target = nextStageOf(item.stage);
+    if (!canAct) return;
+    const reviewer = `${user.name} (${userStaffRole || "Reviewer"})`;
+    const target = next?.label;
+
     setFlash(
       action === "Disapprove"
         ? `Disapproved · ${item.faculty}'s ${item.type} returned for correction`
@@ -316,38 +483,41 @@ export default function Approvals() {
           ? `Approved · ${item.type} forwarded to ${target}`
           : `Approved · ${item.type} cleared for payroll`,
     );
+
     const updatedQueue = queue.map((it) => {
-        if (it.id !== item.id) return it;
-        if (action === "Disapprove") {
-          return {
-            ...it,
-            status: "Disapproved" as StatusKind,
-            record: {
-              ...it.record,
-              reviewer,
-              reviewedAt: NOW,
-              remark:
-                remark.trim() ||
-                `Disapproved at the ${role} stage. Returned to the faculty for correction.`,
-            },
-          };
-        }
+      if (it.id !== item.id) return it;
+      if (action === "Disapprove") {
         return {
           ...it,
-          stage: target ?? it.stage,
-          status: target ? ("Pending" as StatusKind) : ("Approved" as StatusKind),
+          status: "Disapproved" as StatusKind,
           record: {
             ...it.record,
             reviewer,
             reviewedAt: NOW,
             remark:
               remark.trim() ||
-              (target
-                ? `Approved at the ${role} stage. Forwarded to ${target}.`
-                : "Approved at the final stage and cleared for payroll."),
+              `Disapproved at the ${item.stage} stage. Returned to the faculty for correction.`,
           },
         };
-      });
+      }
+      return {
+        ...it,
+        stage: target ?? it.stage,
+        currentStageIndex: target && it.currentStageIndex !== undefined ? it.currentStageIndex + 1 : it.currentStageIndex,
+        status: target ? ("Pending" as StatusKind) : ("Approved" as StatusKind),
+        record: {
+          ...it.record,
+          reviewer,
+          reviewedAt: NOW,
+          remark:
+            remark.trim() ||
+            (target
+              ? `Approved at the ${item.stage} stage. Forwarded to ${target}.`
+              : "Approved at the final stage and cleared for payroll."),
+        },
+      };
+    });
+
     try {
       await saveResource("/approvals", updatedQueue, "PUT");
       setQueue(updatedQueue);
@@ -376,12 +546,19 @@ export default function Approvals() {
               } awaiting your action · ${inPipeline} in the pipeline`
         }
         action={
-          <SearchInput
-            placeholder="Search faculty, reference or period"
-            value={query}
-            onChange={setQuery}
-            className="w-60"
-          />
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <GhostButton onClick={() => navigate("/admin/approvals/workflow")}>
+                Configure Approval Flow
+              </GhostButton>
+            )}
+            <SearchInput
+              placeholder="Search faculty, reference or period"
+              value={query}
+              onChange={setQuery}
+              className="w-60"
+            />
+          </div>
         }
       />
 
@@ -390,19 +567,29 @@ export default function Approvals() {
           <div className="flex items-center gap-3 min-w-0">
             <span
               className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
-              style={{ background: role ? STAGE_COLOR[role] : "#8fa394" }}
+              style={{
+                background: userStaffRole
+                  ? STAGE_COLOR[userStaffRole] || BRAND
+                  : "#8fa394",
+              }}
             >
-              {role ? role.slice(0, 3).toUpperCase() : "VIEW"}
+              {userStaffRole ? userStaffRole.slice(0, 3).toUpperCase() : "VIEW"}
             </span>
             <div className="min-w-0">
               <p
                 className="text-[13px] font-semibold"
                 style={{ color: "#111c14" }}
               >
-                {role ? `Assigned role: ${role}` : "Read-only access"}
+                {isAdmin
+                  ? "Administrator Access (Full Pipeline View)"
+                  : userStaffRole
+                    ? `Assigned role: ${userStaffRole}`
+                    : "Read-only access"}
               </p>
               <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
-                {role ? `${user.name} · ${awaiting} to review` : "No review role assigned. Contact an administrator for access."}
+                {userStaffRole
+                  ? `${user.name} · ${awaiting} to review`
+                  : "No review role assigned. Contact an administrator for access."}
               </p>
             </div>
           </div>
@@ -414,7 +601,7 @@ export default function Approvals() {
               <Toggle on={showDecided} onChange={setShowDecided} />
               Show decided
             </label>
-            {!role && <Badge tone="gray">View only</Badge>}
+            {!userStaffRole && !isAdmin && <Badge tone="gray">View only</Badge>}
           </div>
         </div>
       </Card>
@@ -442,7 +629,7 @@ export default function Approvals() {
             type="button"
             onClick={() => setFlash(null)}
             aria-label="Dismiss"
-            className="transition-opacity hover:opacity-60"
+            className="transition-opacity hover:opacity-60 cursor-pointer"
           >
             <svg
               viewBox="0 0 24 24"
@@ -458,33 +645,33 @@ export default function Approvals() {
         </div>
       )}
 
-      {/* Pipeline board — one column per stage */}
+      {/* Pipeline board — dynamic columns per stage */}
       <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 2xl:grid-cols-4">
-        {STAGES.map((s) => {
-          const cards = column(s);
-          const isMine = s === role;
+        {boardColumns.map((col) => {
+          const cards = column(col.label, col.role_name);
+          const isMine = isAdmin || matchesUserPosition(userStaffRole, col.role_name, col.label);
           return (
             <div
-              key={s}
+              key={col.key}
               className="rounded-3xl p-2.5 min-h-[440px] flex flex-col"
               style={{
-                background: isMine ? "#f0f7f2" : "#f4f6f5",
-                boxShadow: isMine ? `inset 0 0 0 1.5px ${BRAND}33` : "none",
+                background: isMine && !isAdmin ? "#f0f7f2" : "#f4f6f5",
+                boxShadow: isMine && !isAdmin ? `inset 0 0 0 1.5px ${BRAND}33` : "none",
               }}
             >
               <div className="flex items-center justify-between gap-2 px-1.5 pt-1">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span
                     className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ background: STAGE_COLOR[s] }}
+                    style={{ background: col.color }}
                   />
                   <p
                     className="text-[12.5px] font-bold truncate"
                     style={{ color: "#111c14" }}
                   >
-                    {s}
+                    {col.label}
                   </p>
-                  {isMine && (
+                  {isMine && !isAdmin && (
                     <span
                       className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white flex-shrink-0"
                       style={{ color: BRAND }}
@@ -504,7 +691,7 @@ export default function Approvals() {
                 className="text-[10.5px] px-1.5 pt-0.5 pb-2.5 truncate"
                 style={{ color: "#b6c3ba" }}
               >
-                {STAGE_OWNER[s]}
+                {STAGE_OWNER[col.label] || col.role_name}
               </p>
 
               <div className="space-y-2 overflow-y-auto max-h-[520px] pr-0.5">
@@ -512,7 +699,7 @@ export default function Approvals() {
                   <QueueCard
                     key={it.id}
                     item={it}
-                    role={role}
+                    role={userStaffRole}
                     onOpen={() => {
                       setOpenId(it.id);
                       setRemark("");
@@ -559,14 +746,14 @@ export default function Approvals() {
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <p className="text-[11.5px]" style={{ color: "#8fa394" }}>
                   {next
-                    ? `Approving forwards this to ${next}.`
+                    ? `Approving forwards this to ${next.label}.`
                     : "Final stage — approving clears it for payroll."}
                 </p>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => decide(open, "Disapprove")}
-                    className="h-9 px-4 rounded-xl text-[13px] font-semibold border transition-colors hover:bg-[#fdf3f2]"
+                    className="h-9 px-4 rounded-xl text-[13px] font-semibold border transition-colors hover:bg-[#fdf3f2] cursor-pointer"
                     style={{
                       borderColor: "#edc9c5",
                       color: "#c0392b",
@@ -578,10 +765,10 @@ export default function Approvals() {
                   <button
                     type="button"
                     onClick={() => decide(open, "Approve")}
-                    className="h-9 px-4 rounded-xl text-[13px] font-semibold text-white transition-transform active:scale-[0.99]"
+                    className="h-9 px-4 rounded-xl text-[13px] font-semibold text-white transition-transform active:scale-[0.99] cursor-pointer"
                     style={{ background: BRAND }}
                   >
-                    {next ? "Approve & forward" : "Approve & clear"}
+                    {next ? `Approve & forward to ${next.label}` : "Approve & clear"}
                   </button>
                 </div>
               </div>
@@ -604,6 +791,9 @@ export default function Approvals() {
                 <span className="text-[12.5px]" style={{ color: "#5a6b5e" }}>
                   {openStatus.note}
                 </span>
+                {open.isPastFlow && (
+                  <Badge tone="amber">Past Flow (Preserved)</Badge>
+                )}
               </div>
               <span className="text-[11.5px]" style={{ color: "#b6c3ba" }}>
                 Ref {open.reference} · filed {open.submitted}
@@ -636,14 +826,14 @@ export default function Approvals() {
                   )}
                 </svg>
                 <span>
-                  {!role
+                  {!userStaffRole && !isAdmin
                     ? "Your account has no assigned review stage. You can view submissions but cannot change them."
                     : open.status === "Approved"
                     ? "Fully approved — no further action needed."
                     : open.status === "Disapproved"
                       ? `Disapproved at the ${open.stage} stage and returned to the faculty.`
                       : openStatus.label === "Done"
-                        ? `Already approved by you — it is now with ${open.stage}.`
+                        ? `Already approved by your stage — it is now with ${open.stage}.`
                         : `Not yet at your stage — currently with ${open.stage}.`}
                 </span>
               </div>
@@ -654,7 +844,7 @@ export default function Approvals() {
               type={open.type}
               status={open.status}
               initials={initialsOf(open.faculty)}
-              colorIndex={STAGES.indexOf(open.stage)}
+              colorIndex={open.currentStageIndex ?? 0}
               loggedAt={open.submitted}
               event={open.event}
             />

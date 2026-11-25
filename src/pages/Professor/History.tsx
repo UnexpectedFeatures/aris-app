@@ -36,6 +36,9 @@ type HistoryRecord = {
   status: StatusKind;
   stage?: string;
   currentStage?: string;
+  stages?: any[];
+  isPastFlow?: boolean;
+  currentStageIndex?: number;
   /** One-line summary of the event shown in the detail modal. */
   event: string;
   record: RecordPayload;
@@ -213,18 +216,109 @@ const AMBER = "#d99a2b";
 const RED = "#c0392b";
 
 function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
-  const stage = (submission.currentStage || "Checker").toLowerCase();
   const isApproved = submission.status === "Approved";
   const isRejected =
     submission.status === "Rejected" || submission.status === "Disapproved";
+  const rawRec = submission.rawRecord;
+  const snapshotStages = rawRec?.stages;
 
-  // Stage order:
-  // 0: Device
-  // 1: Checker
-  // 2: Secretary
-  // 3: HR
-  // 4: Accounting
+  const deviceStage: RoutingStage = {
+    label: "Device",
+    owner: "Your device",
+    note: "Filed successfully",
+    when: submission.filed,
+    state: "done",
+    icon: stageIcon(
+      <>
+        <rect x="3" y="4" width="18" height="12" rx="2" />
+        <path d="M8 20h8M12 16v4" />
+      </>,
+    ),
+  };
 
+  // If dynamic snapshot stages are attached to this submission:
+  if (Array.isArray(snapshotStages) && snapshotStages.length > 0) {
+    let curStageIdx =
+      typeof rawRec?.currentStageIndex === "number" && rawRec.currentStageIndex >= 0
+        ? rawRec.currentStageIndex
+        : -1;
+    if (curStageIdx === -1) {
+      curStageIdx = snapshotStages.findIndex(
+        (s: any) =>
+          s.stage_key === submission.currentStage ||
+          s.stage_key?.toLowerCase() === submission.currentStage?.toLowerCase() ||
+          s.label?.toLowerCase() === submission.currentStage?.toLowerCase() ||
+          s.role_name?.toLowerCase() === submission.currentStage?.toLowerCase(),
+      );
+    }
+    const activeIdx = curStageIdx >= 0 ? curStageIdx : 0;
+
+    const dynamicStages: RoutingStage[] = snapshotStages.map((stg: any, i: number) => {
+      let state: StageState = "pending";
+      if (isApproved) {
+        state = "done";
+      } else if (i < activeIdx) {
+        state = "done";
+      } else if (i === activeIdx) {
+        state = isRejected ? "rejected" : "current";
+      } else {
+        state = "pending";
+      }
+
+      let note = "Awaiting review";
+      if (state === "done") {
+        note = stg.is_final || i === snapshotStages.length - 1 ? "Cleared for payroll" : "Verified";
+      } else if (state === "current") {
+        note = stg.is_final || i === snapshotStages.length - 1 ? "Payroll computation" : "Reviewing entries";
+      } else if (state === "rejected") {
+        note = "Disapproved";
+      }
+
+      const r = (stg.role_name || stg.label || "").toLowerCase();
+      let icon = stageIcon(
+        <>
+          <rect x="5" y="3" width="14" height="18" rx="2" />
+          <path d="M9 12l2 2 4-4" />
+        </>,
+      );
+      if (r.includes("sec") || r.includes("dept")) {
+        icon = stageIcon(
+          <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />,
+        );
+      } else if (r.includes("hr") || r.includes("human")) {
+        icon = stageIcon(
+          <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />,
+        );
+      } else if (r.includes("account") || r.includes("payroll") || stg.is_final) {
+        icon = stageIcon(
+          <>
+            <rect x="4" y="3" width="16" height="18" rx="2" />
+            <path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h8" />
+          </>,
+        );
+      } else if (r.includes("reg") || r.includes("dean") || r.includes("chair")) {
+        icon = stageIcon(
+          <>
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </>,
+        );
+      }
+
+      return {
+        label: stg.label,
+        owner: stg.role_name || stg.label,
+        note,
+        when: state === "done" || state === "current" || state === "rejected" ? submission.currentSince : undefined,
+        state,
+        icon,
+      };
+    });
+
+    return [deviceStage, ...dynamicStages];
+  }
+
+  // Fallback to legacy canonical 4 stages for past applications
+  const stage = (submission.currentStage || "Checker").toLowerCase();
   const stageRank = isApproved
     ? 5
     : stage.includes("account") || stage.includes("payroll")
@@ -245,19 +339,7 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
   };
 
   return [
-    {
-      label: "Device",
-      owner: "Your device",
-      note: "Filed successfully",
-      when: submission.filed,
-      state: "done",
-      icon: stageIcon(
-        <>
-          <rect x="3" y="4" width="18" height="12" rx="2" />
-          <path d="M8 20h8M12 16v4" />
-        </>,
-      ),
-    },
+    deviceStage,
     {
       label: "Checker",
       owner: "Faculty Checker",
@@ -350,6 +432,29 @@ function getRoutingStages(submission: LatestSubmission): RoutingStage[] {
       ),
     },
   ];
+}
+
+function getHistoryStageColor(stageName?: string, stages?: any[]): string {
+  if (!stageName) return "#3a7d4e";
+  if (Array.isArray(stages)) {
+    const found = stages.find(
+      (s) =>
+        s.label?.toLowerCase() === stageName.toLowerCase() ||
+        s.role_name?.toLowerCase() === stageName.toLowerCase(),
+    );
+    if (found?.color) return found.color;
+  }
+  const s = stageName.toLowerCase();
+  if (s.includes("account") || s.includes("payroll")) return "#2f7043";
+  if (s.includes("hr") || s.includes("human")) return "#b45309";
+  if (s.includes("sec") || s.includes("dept")) return "#1d4ed8";
+  if (s.includes("reg") || s.includes("dean") || s.includes("chair")) return "#c0392b";
+  return "#3a7d4e";
+}
+
+function getHistoryStageBadgeBg(stageName?: string, stages?: any[]): string {
+  const color = getHistoryStageColor(stageName, stages);
+  return `${color}18`;
 }
 
 function StageNode({ s }: { s: RoutingStage }) {
@@ -475,27 +580,19 @@ function LatestSubmissionCard({
     submission.status === "Rejected" || submission.status === "Disapproved";
   const routingStages = getRoutingStages(submission);
 
-  const stage = (submission.currentStage || "Checker").toLowerCase();
-  const stageRank = isApproved
-    ? 5
-    : stage.includes("account") || stage.includes("payroll")
-      ? 4
-      : stage.includes("hr") || stage.includes("human")
-        ? 3
-        : stage.includes("sec") ||
-            stage.includes("dept") ||
-            stage.includes("department")
-          ? 2
-          : 1;
-
-  const nextStop =
-    stageRank === 1
-      ? "College Secretary"
-      : stageRank === 2
-        ? "Human Resources"
-        : stageRank === 3
-          ? "Accounting (Payroll Office)"
-          : "Payroll Disbursement";
+  const curRoutingIdx = routingStages.findIndex(
+    (s) =>
+      s.label.toLowerCase() === submission.currentStage?.toLowerCase() ||
+      s.owner.toLowerCase() === submission.currentStage?.toLowerCase() ||
+      s.state === "current",
+  );
+  const nextStageNode =
+    curRoutingIdx >= 0 && curRoutingIdx + 1 < routingStages.length
+      ? routingStages[curRoutingIdx + 1]
+      : null;
+  const nextStop = nextStageNode
+    ? `${nextStageNode.label} (${nextStageNode.owner})`
+    : "Payroll Disbursement";
 
   return (
     <Card className="mb-4">
@@ -510,6 +607,14 @@ function LatestSubmissionCard({
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {submission.rawRecord?.isPastFlow && (
+            <span
+              className="text-[11px] px-2 py-0.5 rounded-full font-semibold border border-amber-200"
+              style={{ background: "#fbf1de", color: "#996515" }}
+            >
+              Past Flow (Preserved)
+            </span>
+          )}
           <Badge tone={statusTone[submission.status]} dot>
             {submission.status}
           </Badge>
@@ -645,7 +750,7 @@ function LatestSubmissionCard({
         <div className="relative min-w-[720px]">
           {/* connector rail: from the centre of each stage to the next */}
           <div className="absolute top-[17px] left-0 right-0 h-[2px]">
-            {[0, 1, 2, 3].map((i) => {
+            {Array.from({ length: Math.max(0, routingStages.length - 1) }).map((_, i) => {
               const fromDone = routingStages[i].state === "done";
               const toReached = routingStages[i + 1].state !== "pending";
               const toRejected = routingStages[i + 1].state === "rejected";
@@ -655,20 +760,28 @@ function LatestSubmissionCard({
                   ? BRAND
                   : "#e2e8e4";
 
+              const segmentWidth = 100 / routingStages.length;
+              const segmentLeft = segmentWidth / 2 + i * segmentWidth;
+
               return (
                 <span
                   key={i}
                   className="absolute h-[2px] rounded-full transition-colors"
                   style={{
-                    left: `${10 + i * 20}%`,
-                    width: "20%",
+                    left: `${segmentLeft}%`,
+                    width: `${segmentWidth}%`,
                     background: color,
                   }}
                 />
               );
             })}
           </div>
-          <div className="relative grid grid-cols-5">
+          <div
+            className="relative grid"
+            style={{
+              gridTemplateColumns: `repeat(${routingStages.length}, minmax(0, 1fr))`,
+            }}
+          >
             {routingStages.map((s) => (
               <StageNode key={s.label} s={s} />
             ))}
@@ -718,33 +831,11 @@ export default function ProfHistory() {
 
   const allRecords: HistoryRecord[] = useMemo(() => {
     return logs.map((log: any) => {
-      if (log.units && log.period && log.submitted && log.status) {
-        return log as HistoryRecord;
-      }
-      const stageKey = (
-        log.stage_key ||
-        log.approval_stage ||
-        ""
-      ).toUpperCase();
-      const stageOrder =
-        log.stage_order ||
-        (stageKey === "AR-AP-STG-4"
-          ? 4
-          : stageKey === "AR-AP-STG-3"
-            ? 3
-            : stageKey === "AR-AP-STG-2"
-              ? 2
-              : 1);
-
       const stageRole =
+        log.stage ||
+        log.stage_label ||
         log.stage_role ||
-        (stageOrder === 4
-          ? "Accounting"
-          : stageOrder === 3
-            ? "HR"
-            : stageOrder === 2
-              ? "Secretary"
-              : "Checker");
+        "Checker";
 
       const status: StatusKind =
         log.result === "Missing"
@@ -774,6 +865,40 @@ export default function ProfHistory() {
           : "Current Cycle");
       const submitted = log.record?.reviewedAt || log.time || "Recently";
 
+      const rawSnap = log.stages || log.workflow_snapshot;
+      const parsedSnap = typeof rawSnap === "string" ? JSON.parse(rawSnap) : rawSnap;
+      const resolvedStages = Array.isArray(parsedSnap)
+        ? parsedSnap
+        : Array.isArray(parsedSnap?.stages)
+          ? parsedSnap.stages
+          : null;
+
+      const resolvedIsPastFlow =
+        log.isPastFlow !== undefined
+          ? log.isPastFlow
+          : !resolvedStages || resolvedStages.length === 0;
+
+      let resolvedStageIndex =
+        typeof log.currentStageIndex === "number" && log.currentStageIndex >= 0
+          ? log.currentStageIndex
+          : -1;
+      if (resolvedStageIndex === -1 && resolvedStages) {
+        resolvedStageIndex = resolvedStages.findIndex(
+          (s: any) =>
+            s.stage_key === log.stage_key ||
+            s.stage_key === log.approval_stage ||
+            s.label?.toLowerCase() === stageRole.toLowerCase() ||
+            s.role_name?.toLowerCase() === stageRole.toLowerCase(),
+        );
+      }
+      if (resolvedStageIndex === -1) resolvedStageIndex = 0;
+
+      const currentStageLabel =
+        resolvedStages?.[resolvedStageIndex]?.label ||
+        log.stage ||
+        log.stage_label ||
+        stageRole;
+
       return {
         id: log.id || log.record?.reference,
         type: log.type,
@@ -781,8 +906,11 @@ export default function ProfHistory() {
         units,
         submitted,
         status,
-        stage: stageRole,
-        currentStage: stageRole,
+        stage: currentStageLabel,
+        currentStage: currentStageLabel,
+        stages: resolvedStages,
+        isPastFlow: resolvedIsPastFlow,
+        currentStageIndex: resolvedStageIndex,
         event: log.action
           ? `${log.action} · ${log.target}`
           : log.target || `${log.type} submitted`,
@@ -1260,14 +1388,7 @@ export default function ProfHistory() {
                         <span
                           className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                           style={{
-                            background:
-                              item.stage === "Accounting"
-                                ? "#2f7043"
-                                : item.stage === "HR"
-                                  ? "#b45309"
-                                  : item.stage === "Secretary"
-                                    ? "#1d4ed8"
-                                    : "#8fa394",
+                            background: getHistoryStageColor(item.stage, item.stages),
                           }}
                         />
                         <span className="text-[11.5px] font-medium truncate" style={{ color: "#5a6b5e" }}>
@@ -1423,35 +1544,14 @@ export default function ProfHistory() {
                     <span
                       className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium text-[11.5px]"
                       style={{
-                        background:
-                          r.stage === "Accounting"
-                            ? "#eaf4ee"
-                            : r.stage === "HR"
-                              ? "#fdf3e7"
-                              : r.stage === "Secretary"
-                                ? "#eef3fb"
-                                : "#f3f5f3",
-                        color:
-                          r.stage === "Accounting"
-                            ? "#2f7043"
-                            : r.stage === "HR"
-                              ? "#b45309"
-                              : r.stage === "Secretary"
-                                ? "#1d4ed8"
-                                : "#5a6b5e",
+                        background: getHistoryStageBadgeBg(r.stage, r.stages),
+                        color: getHistoryStageColor(r.stage, r.stages),
                       }}
                     >
                       <span
                         className="w-1.5 h-1.5 rounded-full"
                         style={{
-                          background:
-                            r.stage === "Accounting"
-                              ? "#2f7043"
-                              : r.stage === "HR"
-                                ? "#b45309"
-                                : r.stage === "Secretary"
-                                  ? "#1d4ed8"
-                                  : "#8fa394",
+                          background: getHistoryStageColor(r.stage, r.stages),
                         }}
                       />
                       {r.stage || "Checker"}
@@ -1535,16 +1635,131 @@ export default function ProfHistory() {
         }
       >
         {selected && (
-          <SubmissionDetail
-            record={selected.row.record}
-            type={selected.row.type}
-            status={selected.row.status}
-            initials={initials}
-            colorIndex={selected.idx}
-            loggedAt={selected.row.submitted}
-            event={selected.row.event}
-            onRevise={() => handleRevise(selected.row)}
-          />
+          <div className="space-y-4">
+            {/* Approval Flow Timeline Rail */}
+            <div
+              className="rounded-2xl p-4 border"
+              style={{ background: "#fafbfa", borderColor: "#eef1ef" }}
+            >
+              <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                <span className="text-[12px] font-bold text-[#111c14] uppercase tracking-wider">
+                  Approval Process Flow
+                </span>
+                {selected.row.isPastFlow ? (
+                  <Badge tone="amber">Past Flow (Preserved)</Badge>
+                ) : (
+                  <Badge tone="green">Active Flow Pipeline</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(
+                  selected.row.stages && selected.row.stages.length > 0
+                    ? selected.row.stages
+                    : [
+                        { label: "Checker" },
+                        { label: "Secretary" },
+                        { label: "HR" },
+                        { label: "Accounting" },
+                      ]
+                ).map((stg: any, sIdx: number) => {
+                  const isDone =
+                    selected.row.status === "Approved" ||
+                    sIdx < (selected.row.currentStageIndex ?? 0);
+                  const isRejected =
+                    (selected.row.status === "Rejected" ||
+                      selected.row.status === "Disapproved") &&
+                    sIdx === (selected.row.currentStageIndex ?? 0);
+                  const isCurrent =
+                    !isDone &&
+                    !isRejected &&
+                    sIdx === (selected.row.currentStageIndex ?? 0);
+
+                  const bg = isRejected
+                    ? "#fbecec"
+                    : isDone
+                      ? "#eaf4ee"
+                      : isCurrent
+                        ? "#fbf1de"
+                        : "#f4f6f5";
+                  const fg = isRejected
+                    ? "#c0392b"
+                    : isDone
+                      ? "#2f7043"
+                      : isCurrent
+                        ? "#996515"
+                        : "#8fa394";
+
+                  return (
+                    <span
+                      key={stg.stage_key || `${stg.label}-${sIdx}`}
+                      className="flex items-center gap-1.5"
+                    >
+                      {sIdx > 0 && (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#d6ded8"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                          className="w-3 h-3 flex-shrink-0"
+                        >
+                          <path d="M9 6l6 6-6 6" />
+                        </svg>
+                      )}
+                      <span
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                        style={{
+                          background: bg,
+                          color: fg,
+                          boxShadow: isCurrent
+                            ? "0 0 0 1px #e6cf9b inset"
+                            : "none",
+                        }}
+                      >
+                        {isDone && (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="w-3 h-3"
+                          >
+                            <path d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                        {isRejected && (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            className="w-3 h-3"
+                          >
+                            <path d="M6 6l12 12M18 6L6 18" />
+                          </svg>
+                        )}
+                        {stg.label}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            <SubmissionDetail
+              record={selected.row.record}
+              type={selected.row.type}
+              status={selected.row.status}
+              initials={initials}
+              colorIndex={selected.idx}
+              loggedAt={selected.row.submitted}
+              event={selected.row.event}
+              onRevise={() => handleRevise(selected.row)}
+            />
+          </div>
         )}
       </Modal>
     </div>

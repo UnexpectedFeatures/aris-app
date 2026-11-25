@@ -69,6 +69,31 @@ export const adminAuthenticatorNav: NavItem[] = [
   },
 ];
 
+export const adminMainNav: NavItem[] = [
+  {
+    path: "/admin/approvals/workflow",
+    label: "Approval Flow",
+    icon: icon(
+      <>
+        <circle cx="18" cy="18" r="3" />
+        <circle cx="6" cy="6" r="3" />
+        <path d="M6 9v12" />
+        <path d="M18 9a9 9 0 00-9 9" />
+      </>,
+    ),
+  },
+  {
+    path: "/admin/approvals",
+    label: "Submissions Queue",
+    icon: icon(
+      <>
+        <path d="M9 11l2 2 4-4" />
+        <path d="M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
+      </>,
+    ),
+  },
+];
+
 // Professor-side variant (/prof)
 export const profMainNav: NavItem[] = [
   {

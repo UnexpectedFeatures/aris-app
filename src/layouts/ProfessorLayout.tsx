@@ -8,6 +8,7 @@ import {
   profMeetNav,
   profAuthenticatorNav,
   adminAuthenticatorNav,
+  adminMainNav,
   profHelpNav,
   profSettingsNav,
   settingsNav as adminSettingsNav,
@@ -54,7 +55,7 @@ export default function ProfRoot({
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const isStaff = user.role === "staff";
   const isAdmin = user.role === "administrator";
-  const mainNav = isAdmin ? [] : isStaff ? staffMainNav : profMainNav;
+  const mainNav = isAdmin ? adminMainNav : isStaff ? staffMainNav : profMainNav;
   const authenticatorNav = isAdmin
     ? adminAuthenticatorNav
     : profAuthenticatorNav;
