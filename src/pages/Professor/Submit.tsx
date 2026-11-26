@@ -106,6 +106,37 @@ function parsePeriodLabel(value: string, defaultYear?: number): PeriodParts | nu
   };
 }
 
+function getPeriodDateRange(periodLabel: string) {
+  const period = parsePeriodLabel(periodLabel);
+  if (!period) return null;
+
+  const lastDayOfMonth = new Date(
+    Date.UTC(period.year, period.month, 0),
+  ).getUTCDate();
+  const firstDay = period.half === "II" ? 16 : 1;
+  const lastDay =
+    period.half === "I" ? 15 : lastDayOfMonth;
+  const toDateKey = (day: number) =>
+    `${period.year}-${String(period.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  return {
+    min: toDateKey(firstDay),
+    max: toDateKey(lastDay),
+  };
+}
+
+function formatPeriodDateRange(range: { min: string; max: string }) {
+  const formatDate = (date: string, includeYear: boolean) => {
+    const [year, month, day] = date.split("-").map(Number);
+    return `${MONTH_NAMES[month - 1].slice(0, 3)} ${day}${includeYear ? `, ${year}` : ""}`;
+  };
+  const sameMonth = range.min.slice(0, 7) === range.max.slice(0, 7);
+
+  return sameMonth
+    ? `${formatDate(range.min, false)} - ${formatDate(range.max, true)}`
+    : `${formatDate(range.min, true)} - ${formatDate(range.max, true)}`;
+}
+
 function toPeriodLabel(parts: PeriodParts, half: PeriodCycle = "I") {
   return `${MONTH_NAMES[parts.month - 1]} ${parts.year} ${half}`;
 }
@@ -209,11 +240,28 @@ const DAYS_OPTIONS = [
   { label: "SUN", value: "SUN" },
 ];
 
+const MAX_HOURS_PER_DAY = 3;
+const MIN_HOURS_PER_DAY = 2;
+const CLASS_ROW_DEFAULT_HOURS: Record<number, number[]> = {
+  2: [2],
+  3: [3],
+  4: [3, 1],
+  5: [3, 2],
+  6: [3, 3],
+};
+
 function sortScheduleDays(days: string[]) {
   const dayOrder = DAYS_OPTIONS.map((day) => day.value);
   return [...days].sort(
     (a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b),
   );
+}
+
+function getDefaultClassRowHours(units: string): number[] | null {
+  const numericUnits = Number(units);
+  return Number.isInteger(numericUnits)
+    ? CLASS_ROW_DEFAULT_HOURS[numericUnits] ?? null
+    : null;
 }
 
 function formatTime(time: string) {
@@ -230,6 +278,188 @@ function formatTime(time: string) {
 
 function isValidTimeValue(value: string) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function getClockMinutes(time: string): number | null {
+  if (!isValidTimeValue(time)) return null;
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function formatClockMinutes(minutes: number): string {
+  const normalized = ((minutes % 1440) + 1440) % 1440;
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(
+    normalized % 60,
+  ).padStart(2, "0")}`;
+}
+
+function getClassRowDurationMinutes(time?: DayTimeDraft): number | null {
+  if (!time) return null;
+  const start = getClockMinutes(time.start);
+  const end = getClockMinutes(time.end);
+  if (start === null || end === null || end <= start) return null;
+  return end - start;
+}
+
+function recomputeClassRowDefaultEnds(
+  draft: ClassRowDraft,
+): ClassRowDraft {
+  const defaultHours = getDefaultClassRowHours(draft.units);
+  if (!defaultHours) return draft;
+
+  const orderedDays = sortScheduleDays(draft.days);
+  const dayTimes = { ...draft.dayTimes };
+  orderedDays.forEach((day, index) => {
+    const hours = defaultHours[index];
+    const times = dayTimes[day];
+    if (hours === undefined || !times || !isValidTimeValue(times.start)) {
+      return;
+    }
+
+    const startMinutes = getClockMinutes(times.start);
+    if (startMinutes === null) return;
+    dayTimes[day] = {
+      ...times,
+      end: formatClockMinutes(startMinutes + hours * 60),
+    };
+  });
+
+  return { ...draft, dayTimes };
+}
+
+function updateClassRowStartTime(
+  draft: ClassRowDraft,
+  day: string,
+  start: string,
+): ClassRowDraft {
+  const dayTimes = {
+    ...draft.dayTimes,
+    [day]: { ...(draft.dayTimes[day] ?? { start: "", end: "" }), start },
+  };
+  const nextDraft = { ...draft, dayTimes };
+  const defaultHours = getDefaultClassRowHours(draft.units);
+  const dayIndex = sortScheduleDays(draft.days).indexOf(day);
+  const hours = defaultHours?.[dayIndex];
+  if (hours === undefined) return nextDraft;
+
+  const startMinutes = getClockMinutes(start);
+  return {
+    ...nextDraft,
+    dayTimes: {
+      ...dayTimes,
+      [day]: {
+        ...dayTimes[day],
+        end:
+          startMinutes === null
+            ? ""
+            : formatClockMinutes(startMinutes + hours * 60),
+      },
+    },
+  };
+}
+
+function updateClassRowEndTime(
+  draft: ClassRowDraft,
+  day: string,
+  end: string,
+): ClassRowDraft {
+  const dayTimes = {
+    ...draft.dayTimes,
+    [day]: { ...(draft.dayTimes[day] ?? { start: "", end: "" }), end },
+  };
+  const nextDraft = { ...draft, dayTimes };
+  if (draft.days.length !== 2 || !getDefaultClassRowHours(draft.units)) {
+    return nextDraft;
+  }
+
+  const editedTime = dayTimes[day];
+  const duration = getClassRowDurationMinutes(editedTime);
+  const totalMinutes = Number(draft.units) * 60;
+  if (duration === null || duration > totalMinutes) return nextDraft;
+
+  const otherDay = draft.days.find((selectedDay) => selectedDay !== day);
+  const otherTime = otherDay ? dayTimes[otherDay] : undefined;
+  const otherStart = otherTime ? getClockMinutes(otherTime.start) : null;
+  if (!otherDay || !otherTime || otherStart === null) return nextDraft;
+
+  const remainingMinutes = totalMinutes - duration;
+  return {
+    ...nextDraft,
+    dayTimes: {
+      ...dayTimes,
+      [otherDay]: {
+        ...otherTime,
+        end: formatClockMinutes(otherStart + remainingMinutes),
+      },
+    },
+  };
+}
+
+function getClassRowScheduleIssue(draft: ClassRowDraft): string | null {
+  const defaultHours = getDefaultClassRowHours(draft.units);
+  if (defaultHours && draft.days.length !== defaultHours.length) {
+    const requiredDays = defaultHours.length;
+    return `${draft.units} units needs ${requiredDays} ${
+      requiredDays === 1 ? "day" : "days"
+    }.`;
+  }
+
+  let totalMinutes = 0;
+  for (const day of sortScheduleDays(draft.days)) {
+    const time = draft.dayTimes[day];
+    if (
+      !time ||
+      !isValidTimeValue(time.start) ||
+      !isValidTimeValue(time.end)
+    ) {
+      return "Enter valid start and end times for each selected day.";
+    }
+
+    const start = getClockMinutes(time.start);
+    const end = getClockMinutes(time.end);
+    if (start === null || end === null || end <= start) {
+      return `${day}: End Time must be after Start Time; overnight times are not allowed.`;
+    }
+
+    const duration = end - start;
+    if (defaultHours && duration > MAX_HOURS_PER_DAY * 60) {
+      return `${day}: duration cannot exceed ${MAX_HOURS_PER_DAY} hours.`;
+    }
+    if (defaultHours) totalMinutes += duration;
+  }
+
+  if (defaultHours && totalMinutes !== Number(draft.units) * 60) {
+    return `Total time must equal ${draft.units} hours.`;
+  }
+  return null;
+}
+
+function getClassRowDurationSummary(draft: ClassRowDraft) {
+  const dayDurations = sortScheduleDays(draft.days).map((day) =>
+    getClassRowDurationMinutes(draft.dayTimes[day]),
+  );
+  const totalMinutes = dayDurations.reduce<number>(
+    (total, duration) =>
+      total + (duration !== null && duration > 0 ? duration : 0),
+    0,
+  );
+  const formatHours = (minutes: number | null) =>
+    minutes === null
+      ? "—"
+      : String(Number((minutes / 60).toFixed(2)));
+  return {
+    total: formatHours(totalMinutes),
+    breakdown: dayDurations.map(formatHours).join(" + ") || "—",
+  };
+}
+
+function getShortDayWarnings(draft: ClassRowDraft): string[] {
+  return sortScheduleDays(draft.days).flatMap((day) => {
+    const duration = getClassRowDurationMinutes(draft.dayTimes[day]);
+    return duration !== null && duration < MIN_HOURS_PER_DAY * 60
+      ? [`${day} is shorter than ${MIN_HOURS_PER_DAY} hours.`]
+      : [];
+  });
 }
 
 function formatMeetingClock(value: string) {
@@ -295,7 +525,8 @@ function isValidClassRowDraft(draft: ClassRowDraft) {
         isValidTimeValue(time.end) &&
         time.end > time.start
       );
-    })
+    }) &&
+    getClassRowScheduleIssue(draft) === null
   );
 }
 
@@ -357,7 +588,8 @@ function formatHeldDate(date: string) {
     return date || "";
   }
   const [year, month, day] = date.split("-");
-  return `${month}/${day}/${year}`;
+  const monthName = MONTH_NAMES[Number(month) - 1]?.slice(0, 3);
+  return monthName ? `${monthName} ${Number(day)}, ${year}` : date;
 }
 
 /* ─── Shared Label ─────────────────────────────────────── */
@@ -790,6 +1022,9 @@ export default function ProfSubmit() {
   }, [reviseSubmission]);
 
   const [courses, setCourses] = useState<CourseBlock[]>(initialCourses);
+  const [heldDateErrors, setHeldDateErrors] = useState<Record<string, string>>(
+    {},
+  );
 
   useEffect(() => {
     if (reviseSubmission) {
@@ -852,6 +1087,31 @@ export default function ProfSubmit() {
       }
     }
   }, [reviseSubmission]);
+
+  useEffect(() => {
+    if (monthsLoading) return;
+
+    const activePeriod = isRevision ? revisionPeriod ?? period : period;
+    const dateRange = getPeriodDateRange(activePeriod);
+    if (!dateRange) return;
+
+    setCourses((currentCourses) => {
+      let changed = false;
+      const filteredCourses = currentCourses.map((course) => {
+        const heldDates = getHeldDates(course.datesHeld);
+        const datesInPeriod = heldDates.filter(
+          (date) => date >= dateRange.min && date <= dateRange.max,
+        );
+        if (datesInPeriod.length === heldDates.length) return course;
+
+        changed = true;
+        return { ...course, datesHeld: datesInPeriod.join(",") };
+      });
+
+      return changed ? filteredCourses : currentCourses;
+    });
+    setHeldDateErrors({});
+  }, [isRevision, monthsLoading, period, revisionPeriod]);
 
   // Class modal state
   const [classModalCourseId, setClassModalCourseId] = useState<string | null>(
@@ -1778,6 +2038,11 @@ export default function ProfSubmit() {
 
   const selectedPeriodSubmitted =
     !isRevision && submittedPeriods.has(period);
+  const activeHeldDatePeriod = isRevision ? revisionPeriod ?? period : period;
+  const heldDateRange = getPeriodDateRange(activeHeldDatePeriod);
+  const heldDateRangeText = heldDateRange
+    ? formatPeriodDateRange(heldDateRange)
+    : "";
 
   return (
     <div className="pb-32 max-w-[1180px] mx-auto">
@@ -2447,26 +2712,58 @@ export default function ProfSubmit() {
                           <input
                             type="date"
                             value=""
+                            min={heldDateRange?.min}
+                            max={heldDateRange?.max}
                             aria-label={`Add a class date for ${course.code}`}
-                            onChange={(e) =>
-                              e.target.value &&
+                            onChange={(e) => {
+                              const selectedDate = e.currentTarget.value;
+                              if (!selectedDate) return;
+                              if (
+                                !heldDateRange ||
+                                selectedDate < heldDateRange.min ||
+                                selectedDate > heldDateRange.max
+                              ) {
+                                setHeldDateErrors((current) => ({
+                                  ...current,
+                                  [course.id]: heldDateRange
+                                    ? `Only dates from ${heldDateRangeText} can be added for this period.`
+                                    : "The selected reporting period is invalid.",
+                                }));
+                                return;
+                              }
+
+                              setHeldDateErrors((current) => {
+                                const next = { ...current };
+                                delete next[course.id];
+                                return next;
+                              });
                               updateCourseField(
                                 course.id,
                                 "datesHeld",
                                 [
                                   ...new Set([
                                     ...getHeldDates(course.datesHeld),
-                                    e.target.value,
+                                    selectedDate,
                                   ]),
                                 ]
                                   .sort()
                                   .join(","),
-                              )
-                            }
+                              );
+                            }}
                             className="h-11 rounded-xl border border-[#e8eeea] bg-[#fafbfa] px-3.5 text-[12.5px] font-semibold text-[#111c14] outline-none transition-colors focus:border-[#009668] focus:bg-white"
                           />
                           <span className="text-[11.5px] font-medium text-[#718576]">
                             Select each date from the calendar
+                            {heldDateRange && (
+                              <span className="block">
+                                Allowed: {heldDateRangeText}
+                              </span>
+                            )}
+                            {heldDateErrors[course.id] && (
+                              <span className="block text-red-600">
+                                {heldDateErrors[course.id]}
+                              </span>
+                            )}
                           </span>
                           <div className="flex flex-wrap items-center gap-1.5">
                             {getHeldDates(course.datesHeld).map((date) => (
@@ -2870,10 +3167,12 @@ export default function ProfSubmit() {
                     min="1"
                     value={classRowDraft.units}
                     onChange={(e) =>
-                      setClassRowDraft({
-                        ...classRowDraft,
-                        units: e.target.value,
-                      })
+                      setClassRowDraft(
+                        recomputeClassRowDefaultEnds({
+                          ...classRowDraft,
+                          units: e.target.value,
+                        }),
+                      )
                     }
                     className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
                   />
@@ -2991,11 +3290,13 @@ export default function ProfSubmit() {
                           } else {
                             nextDayTimes[day.value] = { start: "", end: "" };
                           }
-                          setClassRowDraft({
-                            ...classRowDraft,
-                            days: nextDays,
-                            dayTimes: nextDayTimes,
-                          });
+                          setClassRowDraft(
+                            recomputeClassRowDefaultEnds({
+                              ...classRowDraft,
+                              days: nextDays,
+                              dayTimes: nextDayTimes,
+                            }),
+                          );
                         }}
                         className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all ${
                           isSelected
@@ -3023,18 +3324,16 @@ export default function ProfSubmit() {
                         <input
                           required
                           type="time"
+                          step="1800"
                           value={times.start}
                           onChange={(e) =>
-                            setClassRowDraft({
-                              ...classRowDraft,
-                              dayTimes: {
-                                ...classRowDraft.dayTimes,
-                                [day]: {
-                                  ...times,
-                                  start: e.target.value,
-                                },
-                              },
-                            })
+                            setClassRowDraft(
+                              updateClassRowStartTime(
+                                classRowDraft,
+                                day,
+                                e.target.value,
+                              ),
+                            )
                           }
                           className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
                         />
@@ -3044,18 +3343,16 @@ export default function ProfSubmit() {
                         <input
                           required
                           type="time"
+                          step="1800"
                           value={times.end}
                           onChange={(e) =>
-                            setClassRowDraft({
-                              ...classRowDraft,
-                              dayTimes: {
-                                ...classRowDraft.dayTimes,
-                                [day]: {
-                                  ...times,
-                                  end: e.target.value,
-                                },
-                              },
-                            })
+                            setClassRowDraft(
+                              updateClassRowEndTime(
+                                classRowDraft,
+                                day,
+                                e.target.value,
+                              ),
+                            )
                           }
                           className="mt-1 block h-9 w-full rounded-xl border px-3 text-[12px] font-medium border-[#cad5cc] text-[#111c14] outline-none focus:border-[#009668]"
                         />
@@ -3064,6 +3361,21 @@ export default function ProfSubmit() {
                   );
                 })}
               </div>
+              {getClassRowScheduleIssue(classRowDraft) && (
+                <p className="text-[10px] text-red-600">
+                  {getClassRowScheduleIssue(classRowDraft)}
+                </p>
+              )}
+              {getShortDayWarnings(classRowDraft).length > 0 && (
+                <p className="text-[10px] text-[#9a6b22]">
+                  Warning: {getShortDayWarnings(classRowDraft).join(" ")}
+                </p>
+              )}
+              <p className="text-[10px] text-[#718576]">
+                Total: {getClassRowDurationSummary(classRowDraft).total} hrs of{" "}
+                {classRowDraft.units || "0"} units (
+                {getClassRowDurationSummary(classRowDraft).breakdown})
+              </p>
             </div>
 
             <footer className="mt-5 flex justify-end gap-2 border-t border-[#f0f4f1] pt-4">
