@@ -29,6 +29,7 @@ import {
   GhostButton,
   Badge,
   Modal,
+  SearchInput,
 } from "@/components/ui";
 import {
   saveMeetingToDb,
@@ -56,10 +57,18 @@ export type MeetSession = {
   course: string;
   date: string;
   time: string;
+  scheduledAt?: string;
+  scheduleDate?: string;
+  scheduleStartTime?: string;
+  scheduleEndTime?: string;
+  startedAt?: string;
+  endedAt?: string;
+  attended?: boolean;
+  cancelled?: boolean;
   duration?: string;
   code: string;
   url: string;
-  status: "Upcoming" | "In Progress" | "Completed";
+  status: "Upcoming" | "In Progress" | "Completed" | "Missed";
   participantsCount?: number;
   summaryId?: string;
   authIn?: boolean;
@@ -174,6 +183,513 @@ function formatDuration(seconds: number): string {
     .padStart(2, "0")}`;
 }
 
+function parseManilaDateTime(
+  dateValue?: string | null,
+  timeValue?: string | null,
+): Date | null {
+  const dateMatch = dateValue?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const timeMatch = timeValue?.match(
+    /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/,
+  );
+  if (!dateMatch || !timeMatch) return null;
+
+  const [, year, month, day] = dateMatch;
+  const [, hour, minute, second = "0"] = timeMatch;
+  const numericYear = Number(year);
+  const numericMonth = Number(month);
+  const numericDay = Number(day);
+  const numericHour = Number(hour);
+  const numericMinute = Number(minute);
+  const numericSecond = Number(second);
+  if (
+    numericMonth < 1 ||
+    numericMonth > 12 ||
+    numericDay < 1 ||
+    numericHour > 23 ||
+    numericMinute > 59 ||
+    numericSecond > 59
+  ) {
+    return null;
+  }
+
+  const result = new Date(
+    Date.UTC(
+      numericYear,
+      numericMonth - 1,
+      numericDay,
+      numericHour - 8,
+      numericMinute,
+      numericSecond,
+    ),
+  );
+  const manilaDate = new Date(result.getTime() + 8 * 60 * 60_000);
+  if (
+    manilaDate.getUTCFullYear() !== numericYear ||
+    manilaDate.getUTCMonth() !== numericMonth - 1 ||
+    manilaDate.getUTCDate() !== numericDay ||
+    manilaDate.getUTCHours() !== numericHour ||
+    manilaDate.getUTCMinutes() !== numericMinute ||
+    manilaDate.getUTCSeconds() !== numericSecond
+  ) {
+    return null;
+  }
+  return result;
+}
+
+function getMeetingScheduleRange(meeting: MeetSession) {
+  const start = parseManilaDateTime(
+    meeting.scheduleDate,
+    meeting.scheduleStartTime,
+  );
+  const end = parseManilaDateTime(
+    meeting.scheduleDate,
+    meeting.scheduleEndTime,
+  );
+  return start && end && end > start ? { start, end } : null;
+}
+
+function findMeetingConflict(
+  start: Date,
+  end: Date,
+  meetings: MeetSession[],
+  excludeMeetingId?: string,
+): MeetSession | undefined {
+  return meetings.find((meeting) => {
+    if (
+      meeting.id === excludeMeetingId ||
+      meeting.cancelled
+    ) {
+      return false;
+    }
+
+    const range = getMeetingScheduleRange(meeting);
+    return Boolean(range && start < range.end && end > range.start);
+  });
+}
+
+function getCourseUnits(
+  selectedCourse: string,
+  courses: MinimalCourseInfo[],
+): number | null {
+  const selectedCode = selectedCourse.split("·", 1)[0].trim().toLowerCase();
+  const course = courses.find(
+    (item) => item.code.trim().toLowerCase() === selectedCode,
+  );
+  if (!course || String(course.units ?? "").trim() === "") return null;
+
+  const units = Number(course.units);
+  return Number.isFinite(units) && units >= 0 ? units : null;
+}
+
+function computeCourseEndTime(
+  startTime: string,
+  units: number,
+): { endTime: string; crossesMidnight: boolean } | null {
+  const match = startTime.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const startHour = Number(match[1]);
+  const startMinute = Number(match[2]);
+  if (startHour > 23 || startMinute > 59) return null;
+
+  const durationMinutes = Math.round(units * 60);
+  if (!Number.isFinite(durationMinutes)) return null;
+  const startMinutes = startHour * 60 + startMinute;
+  const totalMinutes = startMinutes + durationMinutes;
+  const minutesAfterMidnight = totalMinutes % (24 * 60);
+  const hours = Math.floor(minutesAfterMidnight / 60);
+  const minutes = minutesAfterMidnight % 60;
+  const endHour = String(hours).padStart(2, "0");
+  const endMinute = String(minutes).padStart(2, "0");
+
+  return {
+    endTime: `${endHour}:${endMinute}`,
+    crossesMidnight: totalMinutes >= 24 * 60,
+  };
+}
+
+function formatManilaTime(date: Date): string {
+  return date.toLocaleTimeString(undefined, {
+    timeZone: "Asia/Manila",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getScheduledMeetingStatus(
+  meetingDate: string,
+  startTime: string,
+  endTime: string,
+  startedAt: string | undefined,
+  endedAt: string | undefined,
+  attended: boolean,
+  fallbackStatus: MeetSession["status"],
+  now = new Date(),
+): MeetSession["status"] {
+  const pastStatus = attended ? "Completed" : "Missed";
+  const parseTimestamp = (value: string | undefined) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const parseLocalDateTime = (time: string) => {
+    const dateMatch = meetingDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const timeMatch = time.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (!dateMatch || !timeMatch) return null;
+
+    const [, year, month, day] = dateMatch;
+    const [, hour, minute, second = "0"] = timeMatch;
+    const date = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+    );
+    if (
+      date.getFullYear() !== Number(year) ||
+      date.getMonth() !== Number(month) - 1 ||
+      date.getDate() !== Number(day) ||
+      Number(hour) > 23 ||
+      Number(minute) > 59 ||
+      Number(second) > 59
+    ) {
+      return null;
+    }
+    return date;
+  };
+
+  const start = parseTimestamp(startedAt) ?? parseLocalDateTime(startTime);
+  const end = parseTimestamp(endedAt) ?? parseLocalDateTime(endTime);
+  if (start && end) {
+    if (now < start) return "Upcoming";
+    return now < end ? "In Progress" : pastStatus;
+  }
+  if (start) return now < start ? "Upcoming" : pastStatus;
+  if (end) return now < end ? "Upcoming" : pastStatus;
+
+  const dateMatch = meetingDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (dateMatch) {
+    const [, year, month, day] = dateMatch;
+    const meetingDay = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+    );
+    if (
+      meetingDay.getFullYear() === Number(year) &&
+      meetingDay.getMonth() === Number(month) - 1 &&
+      meetingDay.getDate() === Number(day)
+    ) {
+      const today = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+      );
+      return meetingDay < today ? pastStatus : "Upcoming";
+    }
+  }
+
+  return fallbackStatus;
+}
+
+function getMeetingBadgeStatus(
+  meeting: MeetSession,
+  now: Date,
+): MeetSession["status"] {
+  if (meeting.cancelled) {
+    return meeting.status;
+  }
+
+  const range = getMeetingScheduleRange(meeting);
+  if (range && now >= range.start && now < range.end) {
+    return "In Progress";
+  }
+
+  if (
+    meeting.scheduleDate &&
+    meeting.scheduleStartTime &&
+    meeting.scheduleEndTime
+  ) {
+    return getScheduledMeetingStatus(
+      meeting.scheduleDate,
+      meeting.scheduleStartTime,
+      meeting.scheduleEndTime,
+      meeting.startedAt,
+      meeting.endedAt,
+      meeting.attended === true,
+      meeting.status,
+      now,
+    );
+  }
+
+  return meeting.status;
+}
+
+type MeetingFilter =
+  | "All"
+  | "Upcoming"
+  | "Ongoing"
+  | "Completed"
+  | "Missed";
+
+type MeetingsHistoryModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  meetings: MeetSession[];
+  now: Date;
+};
+
+const meetingFilters: MeetingFilter[] = [
+  "All",
+  "Upcoming",
+  "Ongoing",
+  "Completed",
+  "Missed",
+];
+
+function getMeetingDate(meeting: MeetSession): Date | null {
+  if (meeting.scheduledAt) {
+    const scheduledDate = new Date(meeting.scheduledAt);
+    if (!Number.isNaN(scheduledDate.getTime())) return scheduledDate;
+  }
+
+  const date =
+    meeting.date === "Today" ? new Date() : new Date(meeting.date);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const timeMatch = meeting.time.match(
+    /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i,
+  );
+  if (timeMatch) {
+    let hour = Number(timeMatch[1]);
+    const meridiem = timeMatch[4]?.toUpperCase();
+    if (meridiem) {
+      hour %= 12;
+      if (meridiem === "PM") hour += 12;
+    }
+    date.setHours(hour, Number(timeMatch[2]), Number(timeMatch[3] || 0), 0);
+  }
+  return date;
+}
+
+function getMeetingTimestamp(meeting: MeetSession): number {
+  return getMeetingDate(meeting)?.getTime() ?? 0;
+}
+
+function isSameMeetingDay(first: Date, second: Date): boolean {
+  return (
+    first.getFullYear() === second.getFullYear() &&
+    first.getMonth() === second.getMonth() &&
+    first.getDate() === second.getDate()
+  );
+}
+
+function getMeetingDateGroup(date: Date | null, now: Date): string {
+  if (!date) return "Date unavailable";
+  if (isSameMeetingDay(date, now)) return "Today";
+
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  const nextWeek = new Date(weekStart);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  if (date >= weekStart && date < nextWeek) return "This week";
+
+  return date.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function getMeetingStatusLabel(status: MeetSession["status"]): string {
+  return status === "In Progress" ? "Ongoing" : status;
+}
+
+function getMeetingStatusTone(
+  status: MeetSession["status"],
+): "green" | "amber" | "gray" {
+  if (status === "Missed") return "gray";
+  if (status === "In Progress") return "amber";
+  return "green";
+}
+
+function getMeetingFilterCount(
+  meetings: MeetSession[],
+  filter: MeetingFilter,
+  now: Date,
+): number {
+  if (filter === "All") return meetings.length;
+  return meetings.filter((meeting) =>
+    matchesMeetingFilter(meeting, filter, now),
+  ).length;
+}
+
+function matchesMeetingFilter(
+  meeting: MeetSession,
+  filter: MeetingFilter,
+  now: Date,
+): boolean {
+  if (filter === "All") return true;
+  const status = getMeetingBadgeStatus(meeting, now);
+  if (filter === "Ongoing") return status === "In Progress";
+  return status === filter;
+}
+
+function MeetingsHistoryModal({
+  isOpen,
+  onClose,
+  meetings,
+  now,
+}: MeetingsHistoryModalProps) {
+  const [activeFilter, setActiveFilter] = useState<MeetingFilter>("All");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const query = searchQuery.trim().toLocaleLowerCase();
+  const filteredMeetings = meetings
+    .filter((meeting) => matchesMeetingFilter(meeting, activeFilter, now))
+    .filter(
+      (meeting) =>
+        !query ||
+        `${meeting.title} ${meeting.course}`.toLocaleLowerCase().includes(query),
+    )
+    .sort((a, b) => {
+      const direction =
+        activeFilter === "Upcoming" || activeFilter === "Ongoing" ? 1 : -1;
+      return direction * (getMeetingTimestamp(a) - getMeetingTimestamp(b));
+    });
+
+  const groups: { title: string; meetings: MeetSession[] }[] = [];
+  filteredMeetings.forEach((meeting) => {
+    const title = getMeetingDateGroup(getMeetingDate(meeting), now);
+    const group = groups[groups.length - 1];
+    if (group?.title === title) {
+      group.meetings.push(meeting);
+    } else {
+      groups.push({ title, meetings: [meeting] });
+    }
+  });
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="All Meetings"
+      size="lg"
+      align="left"
+      actions={
+        <div className="flex w-full justify-end">
+          <GhostButton onClick={onClose}>Close</GhostButton>
+        </div>
+      }
+    >
+      <div className="w-full space-y-4">
+        <SearchInput
+          placeholder="Search title, course, or section..."
+          value={searchQuery}
+          onChange={setSearchQuery}
+          className="w-full"
+        />
+
+        <div className="flex gap-1 overflow-x-auto rounded-xl bg-[#f0f2f0] p-0.5">
+          {meetingFilters.map((filter) => {
+            const selected = activeFilter === filter;
+            return (
+              <button
+                key={filter}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setActiveFilter(filter)}
+                className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors"
+                style={{
+                  background: selected ? "#fff" : "transparent",
+                  color: selected ? "#111c14" : "#8fa394",
+                  boxShadow: selected ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                }}
+              >
+                {filter}
+                <span className="text-[11px] tabular-nums">
+                  {getMeetingFilterCount(meetings, filter, now)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {groups.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[#dce3df] px-4 py-10 text-center">
+            <p className="text-[13px] font-semibold text-[#111c14]">
+              No meetings found
+            </p>
+            <p className="mt-1 text-[12px] text-[#8fa394]">
+              Try another status or search term.
+            </p>
+          </div>
+        ) : (
+          <div className="max-h-[52vh] space-y-4 overflow-y-auto pr-1">
+            {groups.map((group) => (
+              <section key={group.title}>
+                <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8fa394]">
+                  {group.title}
+                </h3>
+                <div className="space-y-2">
+                  {group.meetings.map((meeting) => {
+                    const date = getMeetingDate(meeting);
+                    return (
+                      <div
+                        key={meeting.id}
+                        className="flex items-start justify-between gap-3 rounded-xl border border-[#dce3df] bg-[#f7f9f8] px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[12.5px] font-semibold text-[#111c14]">
+                            {meeting.title}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11.5px] text-[#5a6b5e]">
+                            {meeting.course}
+                          </p>
+                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#8fa394]">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {date
+                                ? isSameMeetingDay(date, now)
+                                  ? "Today"
+                                  : date.toLocaleDateString(undefined, {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })
+                                : meeting.date}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {meeting.time}
+                            </span>
+                          </div>
+                        </div>
+                        <Badge
+                          tone={getMeetingStatusTone(
+                            getMeetingBadgeStatus(meeting, now),
+                          )}
+                          dot
+                        >
+                          {getMeetingStatusLabel(
+                            getMeetingBadgeStatus(meeting, now),
+                          )}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /* ─── Main Component ───────────────────────────────────────────────────────── */
 
 export default function ProfMeet() {
@@ -225,6 +741,8 @@ export default function ProfMeet() {
       return [];
     }
   });
+  const [statusClock, setStatusClock] = useState(() => Date.now());
+  const statusNow = new Date(statusClock);
 
   // Join by code state
   const [joinInput, setJoinInput] = useState("");
@@ -323,6 +841,7 @@ export default function ProfMeet() {
 
   // Schedule Modal State
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+  const [isMeetingsHistoryOpen, setIsMeetingsHistoryOpen] = useState(false);
   const [schedTitle, setSchedTitle] = useState("");
   const [schedCourse, setSchedCourse] = useState("");
   const [schedDate, setSchedDate] = useState(() => {
@@ -333,6 +852,24 @@ export default function ProfMeet() {
   const [schedEndTime, setSchedEndTime] = useState("15:00");
   const [schedNotes, setSchedNotes] = useState("");
   const [schedCustomCode, setSchedCustomCode] = useState("");
+  const selectedCourseUnits = getCourseUnits(schedCourse, availableCourses);
+  const computedCourseEnd = selectedCourseUnits === null
+    ? null
+    : computeCourseEndTime(schedStartTime, selectedCourseUnits);
+  const computedEndTime = computedCourseEnd?.endTime ?? null;
+  const crossesMidnight = computedCourseEnd?.crossesMidnight ?? false;
+
+  useEffect(() => {
+    if (computedEndTime !== null) setSchedEndTime(computedEndTime);
+  }, [schedCourse, schedStartTime, selectedCourseUnits, computedEndTime]);
+
+  useEffect(() => {
+    if (isScheduleOpen && crossesMidnight) {
+      setToastMessage(
+        "Course duration crosses midnight. Choose an earlier start time.",
+      );
+    }
+  }, [isScheduleOpen, schedCourse, schedStartTime, crossesMidnight]);
 
   /* ─── Fingerprint verification ───────────────────────────────────────────── */
 
@@ -517,6 +1054,17 @@ export default function ProfMeet() {
         const r = raw;
         const startStr = r.started_at ? new Date(r.started_at) : null;
         const endStr = r.ended_at ? new Date(r.ended_at) : null;
+        const localStartStr = r.meeting_date
+          ? new Date(
+              `${r.meeting_date.split("T")[0]}T${r.start_time || "00:00:00"}`,
+            )
+          : null;
+        const scheduledStart =
+          startStr && !Number.isNaN(startStr.getTime())
+            ? startStr
+            : localStartStr && !Number.isNaN(localStartStr.getTime())
+              ? localStartStr
+              : null;
         const timeDisplay =
           startStr &&
           endStr &&
@@ -556,12 +1104,29 @@ export default function ProfMeet() {
           });
         }
 
+        const cancelled =
+          r.status?.toLowerCase() === "cancelled" ||
+          r.status?.toLowerCase() === "canceled";
+        const fallbackStatus = (r.status === "scheduled"
+          ? "Upcoming"
+          : r.status === "in_progress"
+            ? "In Progress"
+            : "Completed") as MeetSession["status"];
+
         return {
           id: r.id,
           title: r.name || "Google Meet Session",
           course: r.course || "General Consultation",
           date: dateDisplay,
           time: timeDisplay,
+          scheduledAt: scheduledStart?.toISOString(),
+          scheduleDate: r.meeting_date,
+          scheduleStartTime: r.start_time,
+          scheduleEndTime: r.end_time,
+          startedAt: r.started_at ?? undefined,
+          endedAt: r.ended_at ?? undefined,
+          attended: r.auth_in === true,
+          cancelled,
           duration: durFormatted,
           code: r.meeting_code || "meet",
           url:
@@ -569,11 +1134,17 @@ export default function ProfMeet() {
             (r.meeting_code
               ? `https://meet.google.com/${r.meeting_code}`
               : "https://meet.google.com"),
-          status: (r.status === "scheduled"
-            ? "Upcoming"
-            : r.status === "in_progress"
-              ? "In Progress"
-              : "Completed") as MeetSession["status"],
+          status: cancelled
+            ? fallbackStatus
+            : getScheduledMeetingStatus(
+                r.meeting_date,
+                r.start_time,
+                r.end_time,
+                r.started_at,
+                r.ended_at,
+                r.auth_in === true,
+                fallbackStatus,
+              ),
           participantsCount: 1,
           authIn: r.auth_in === true,
           authOut: r.auth_out === true,
@@ -591,6 +1162,11 @@ export default function ProfMeet() {
 
   useEffect(() => {
     void loadDbMeetings();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => setStatusClock(Date.now()), 60_000);
+    return () => clearInterval(interval);
   }, []);
 
   /* ─── Hardware Check Handlers ────────────────────────────────────────────── */
@@ -982,6 +1558,46 @@ export default function ProfMeet() {
       return;
     }
 
+    const courseEnd =
+      selectedCourseUnits === null
+        ? null
+        : computeCourseEndTime(schedStartTime, selectedCourseUnits);
+    if (selectedCourseUnits !== null && !courseEnd) {
+      setToastMessage("Enter a valid start time.");
+      return;
+    }
+    if (courseEnd?.crossesMidnight) {
+      setToastMessage(
+        "Course duration crosses midnight. Choose an earlier start time.",
+      );
+      return;
+    }
+
+    const endTime = schedEndTime;
+    const newStart = parseManilaDateTime(schedDate, schedStartTime);
+    const newEnd = parseManilaDateTime(schedDate, endTime);
+    if (!newStart || !newEnd) {
+      setToastMessage("Enter a valid meeting date and time.");
+      return;
+    }
+    if (newEnd <= newStart) {
+      setToastMessage("End time must be after start time.");
+      return;
+    }
+
+    const conflict = findMeetingConflict(newStart, newEnd, meetings);
+    if (conflict) {
+      const conflictRange = getMeetingScheduleRange(conflict);
+      if (conflictRange) {
+        setToastMessage(
+          `This time conflicts with "${conflict.title}" (${formatManilaTime(
+            conflictRange.start,
+          )} – ${formatManilaTime(conflictRange.end)}).`,
+        );
+        return;
+      }
+    }
+
     const customClean = cleanMeetCode(schedCustomCode);
     const code = customClean || generateRandomCode();
     const newSession: MeetSession = {
@@ -989,7 +1605,10 @@ export default function ProfMeet() {
       title: schedTitle.trim(),
       course: schedCourse,
       date: schedDate,
-      time: `${schedStartTime} – ${schedEndTime}`,
+      time: `${schedStartTime} – ${endTime}`,
+      scheduleDate: schedDate,
+      scheduleStartTime: schedStartTime,
+      scheduleEndTime: endTime,
       duration: "1h 00m",
       code,
       url: buildMeetUrl(code, oauthEmail),
@@ -998,25 +1617,22 @@ export default function ProfMeet() {
     };
 
     try {
-      const startDateTime = new Date(`${schedDate}T${schedStartTime}`);
-      const endDateTime = new Date(`${schedDate}T${schedEndTime}`);
+      const durationMinutes = Math.round(
+        (newEnd.getTime() - newStart.getTime()) / 60_000,
+      );
       const saved = await saveMeetingToDb({
         title: schedTitle.trim(),
         name: schedTitle.trim(),
         course: schedCourse,
         meeting_code: code,
         meeting_url: newSession.url,
-        started_at: isNaN(startDateTime.getTime())
-          ? new Date().toISOString()
-          : startDateTime.toISOString(),
-        ended_at: isNaN(endDateTime.getTime())
-          ? new Date().toISOString()
-          : endDateTime.toISOString(),
+        started_at: newStart.toISOString(),
+        ended_at: newEnd.toISOString(),
         start_time: schedStartTime,
-        end_time: schedEndTime,
+        end_time: endTime,
         meeting_date: schedDate,
-        duration_minutes: 60,
-        duration_seconds: 3600,
+        duration_minutes: durationMinutes,
+        duration_seconds: durationMinutes * 60,
         status: "scheduled",
         info: schedNotes,
         user_email: oauthEmail,
@@ -1040,9 +1656,31 @@ export default function ProfMeet() {
   };
 
   /* Filtered Meetings */
-  const upcomingMeetings = meetings.filter(
-    (m) => m.status === "Upcoming" || m.status === "In Progress",
-  );
+  const getScheduledTimestamp = (meeting: MeetSession) => {
+    const timestamp = meeting.scheduledAt
+      ? new Date(meeting.scheduledAt).getTime()
+      : Number.NaN;
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+  };
+  const upcomingMeetings = [
+    ...meetings
+      .filter(
+        (meeting) =>
+          meeting.status === "Upcoming" || meeting.status === "In Progress",
+      )
+      .sort(
+        (a, b) => getScheduledTimestamp(a) - getScheduledTimestamp(b),
+      ),
+    ...meetings
+      .filter(
+        (meeting) =>
+          meeting.status === "Completed" || meeting.status === "Missed",
+      )
+      .sort(
+        (a, b) => getScheduledTimestamp(b) - getScheduledTimestamp(a),
+      )
+      .slice(0, 3),
+  ].slice(0, 4);
 
   return (
     <div className="pb-6">
@@ -1269,16 +1907,6 @@ export default function ProfMeet() {
                         {c.code} — {c.title}
                       </option>
                     ))}
-                    {!availableCourses.some((c) => c.code === "CC 105") && (
-                      <option value="CC 105 · BSIT 2B">
-                        CC 105 · BSIT 2B (Information Management)
-                      </option>
-                    )}
-                    {!availableCourses.some((c) => c.code === "CC 116") && (
-                      <option value="CC 116 · BSCS 3-B">
-                        CC 116 · BSCS 3-B (Advanced Web Systems)
-                      </option>
-                    )}
                     <option value="Faculty Council">
                       Faculty / Department Consultation
                     </option>
@@ -1734,7 +2362,7 @@ export default function ProfMeet() {
         </div>
 
         <aside className="min-w-0">
-          <Card className="h-full">
+          <Card className="h-fit">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h2
@@ -1744,7 +2372,7 @@ export default function ProfMeet() {
                   Upcoming Meetings
                 </h2>
                 <p className="mt-0.5 text-[12px]" style={{ color: "#8fa394" }}>
-                  Your next scheduled sessions.
+                  Upcoming sessions and recent meetings.
                 </p>
               </div>
               <Calendar className="h-5 w-5 flex-shrink-0 text-[#3a7d4e]" />
@@ -1778,12 +2406,14 @@ export default function ProfMeet() {
                         {session.title}
                       </p>
                       <Badge
-                        tone={
-                          session.status === "In Progress" ? "amber" : "green"
-                        }
+                        tone={getMeetingStatusTone(
+                          getMeetingBadgeStatus(session, statusNow),
+                        )}
                         dot
                       >
-                        {session.status}
+                        {getMeetingStatusLabel(
+                          getMeetingBadgeStatus(session, statusNow),
+                        )}
                       </Badge>
                     </div>
                     <p className="truncate text-[11.5px] text-[#5a6b5e]">
@@ -1803,9 +2433,24 @@ export default function ProfMeet() {
                 ))}
               </div>
             )}
+            <div className="mt-4 border-t border-[#eef1ef] pt-3">
+              <GhostButton
+                className="w-full justify-center"
+                onClick={() => setIsMeetingsHistoryOpen(true)}
+              >
+                View all meetings
+              </GhostButton>
+            </div>
           </Card>
         </aside>
       </div>
+
+      <MeetingsHistoryModal
+        isOpen={isMeetingsHistoryOpen}
+        onClose={() => setIsMeetingsHistoryOpen(false)}
+        meetings={meetings}
+        now={statusNow}
+      />
 
       {/* Fingerprint Verification Modal */}
       <Modal
@@ -1906,7 +2551,16 @@ export default function ProfMeet() {
               </label>
               <select
                 value={schedCourse}
-                onChange={(e) => setSchedCourse(e.target.value)}
+                onChange={(e) => {
+                  const nextCourse = e.target.value;
+                  setSchedCourse(nextCourse);
+                  const units = getCourseUnits(nextCourse, availableCourses);
+                  const courseEnd =
+                    units === null
+                      ? null
+                      : computeCourseEndTime(schedStartTime, units);
+                  if (courseEnd) setSchedEndTime(courseEnd.endTime);
+                }}
                 className="w-full rounded-xl border border-[#e2e8e4] px-3 py-2 text-[13px] outline-none bg-white focus:border-[#3a7d4e]"
               >
                 {availableCourses.map((c) => (
@@ -1914,21 +2568,6 @@ export default function ProfMeet() {
                     {c.code} — {c.title}
                   </option>
                 ))}
-                {!availableCourses.some((c) => c.code === "CC 105") && (
-                  <option value="CC 105 · BSIT 2B">
-                    CC 105 · BSIT 2B (Information Management)
-                  </option>
-                )}
-                {!availableCourses.some((c) => c.code === "CS 201") && (
-                  <option value="CS 201 · BSCS 2A">
-                    CS 201 · BSCS 2A (Data Structures)
-                  </option>
-                )}
-                {!availableCourses.some((c) => c.code === "IT 301") && (
-                  <option value="IT 301 · BSIT 3A">
-                    IT 301 · BSIT 3A (Web Development)
-                  </option>
-                )}
                 <option value="Faculty Council">
                   Faculty / Department Consultation
                 </option>
@@ -1965,7 +2604,17 @@ export default function ProfMeet() {
               <input
                 type="time"
                 value={schedStartTime}
-                onChange={(e) => setSchedStartTime(e.target.value)}
+                onChange={(e) => {
+                  const nextStartTime = e.target.value;
+                  setSchedStartTime(nextStartTime);
+                  if (selectedCourseUnits !== null) {
+                    const courseEnd = computeCourseEndTime(
+                      nextStartTime,
+                      selectedCourseUnits,
+                    );
+                    if (courseEnd) setSchedEndTime(courseEnd.endTime);
+                  }
+                }}
                 className="w-full rounded-xl border border-[#e2e8e4] px-3 py-2 text-[13px] outline-none bg-white focus:border-[#3a7d4e]"
               />
             </div>
@@ -1983,6 +2632,11 @@ export default function ProfMeet() {
                 onChange={(e) => setSchedEndTime(e.target.value)}
                 className="w-full rounded-xl border border-[#e2e8e4] px-3 py-2 text-[13px] outline-none bg-white focus:border-[#3a7d4e]"
               />
+              {selectedCourseUnits === null && (
+                <p className="text-[11px] text-[#8fa394] mt-1">
+                  Course units are unavailable. Enter the end time manually.
+                </p>
+              )}
             </div>
           </div>
 
